@@ -1,0 +1,1002 @@
+<!DOCTYPE html><html lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>MC03 DA Portal — Bank Collections Report Automation</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#312e81',
+            }
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f8fafc; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col font-sans">
+<!-- 1. Header Bar (Minimalist, Zero-friction, Single-operator) -->
+<header class="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-13 py-2.5 flex items-center justify-between">
+<!-- Left: Brand mark & Campaign tag pill -->
+<div class="flex items-center space-x-3">
+<div class="flex items-center space-x-2">
+<div class="w-7 h-7 rounded bg-indigo-600 flex items-center justify-center font-mono font-bold text-white text-xs shadow-inner">
+            M3
+          </div>
+<span class="font-bold tracking-tight text-slate-100 text-sm">MC03 DA Portal</span>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-indigo-300 border border-slate-700/80 font-mono">
+          RCBC Auto Loan (Active)
+        </span>
+</div>
+<!-- Right: Minimalist system indicators (No reviewer profiles or avatars) -->
+<div class="flex items-center space-x-3 text-xs font-mono">
+<div class="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300">
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+<span class="">Status: <strong class="text-emerald-300 font-medium">Ready</strong></span>
+</div>
+<div class="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+<span class="">Local Mutex: <strong class="text-slate-200 font-medium">Idle</strong></span>
+</div>
+<div class="hidden md:flex items-center px-2 py-1 rounded bg-slate-800/60 border border-slate-700/60 text-[11px] text-slate-400">
+          Engine: Ready
+        </div>
+</div>
+</div>
+</header>
+<!-- 2. Step / Tab Navigation (Sleek Minimalist 3-Step Switcher) -->
+<nav class="bg-white border-b border-slate-200 shadow-xs sticky top-[49px] z-30">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex items-center justify-between py-2">
+<div class="flex space-x-2 sm:space-x-4" id="nav-tabs">
+<!-- Step 1 -->
+<button class="tab-btn group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs" id="btn-tab-setup" onclick="switchTab('tab-setup')">
+<span class="w-5 h-5 rounded-full bg-indigo-600 text-white font-mono text-[11px] flex items-center justify-center font-bold">1</span>
+<span class="">1. Run Setup &amp; Sources</span>
+</button>
+<!-- Step 2 -->
+<button class="tab-btn group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100" id="btn-tab-review" onclick="switchTab('tab-review')">
+<span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-mono text-[11px] flex items-center justify-center font-bold group-hover:bg-slate-300">2</span>
+<span class="">2. Exception Review</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-100 text-amber-800 border border-amber-300 font-semibold" id="tab-flagged-badge">5 Flagged</span>
+</button>
+<!-- Step 3 -->
+<button class="tab-btn group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100" id="btn-tab-export" onclick="switchTab('tab-export')">
+<span class="w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-mono text-[11px] flex items-center justify-center font-bold group-hover:bg-slate-300">3</span>
+<span class="">3. Export &amp; Download</span>
+</button>
+</div>
+<div class="hidden lg:flex items-center space-x-2 text-xs text-slate-500 font-mono">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span class="">Zero-friction Ingest Mode</span>
+</div>
+</div>
+</div>
+</nav>
+<!-- Main Work Area -->
+<main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+<!-- ============================================================= -->
+<!-- SCREEN 1: RUN SETUP & SOURCES                                 -->
+<!-- ============================================================= -->
+<section class="tab-content active" id="tab-setup">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Parameters Card -->
+<div class="lg:col-span-5 space-y-4">
+<div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between h-full">
+<div class="space-y-4">
+<div class="border-b border-slate-100 pb-3">
+<h2 class="text-sm font-bold uppercase tracking-wider text-slate-900">Run Configuration Parameters</h2>
+<p class="text-xs text-slate-500 mt-0.5">Configure report target boundaries and launch extraction pipeline.</p>
+</div>
+<!-- Campaign Selector (Locked & verified badge) -->
+<div>
+<label class="block text-xs font-semibold text-slate-700 mb-1.5">Target Campaign</label>
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+<div class="flex items-center space-x-2">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+<span class="text-xs font-bold text-slate-900 font-mono">RCBC Auto Loan</span>
+</div>
+<span class="text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-medium">
+                    Phase 1 Ingestion
+                  </span>
+</div>
+<p class="text-[11px] text-slate-400 mt-1 font-mono">
+                  SHA-256 Verified Config Snapshot: <code class="text-slate-600">e3b0c442...98f1</code>
+</p>
+</div>
+<!-- Report Date Picker & Quick Toggles -->
+<div class="">
+<div class="flex items-center justify-between mb-1.5">
+<label class="block text-xs font-semibold text-slate-700">Report Date Range (From - To)</label>
+
+</div>
+<div class="grid grid-cols-2 gap-2">
+<div class="relative">
+<label class="block text-[10px] font-mono text-slate-500 mb-0.5" for="report-date-from">From Date</label>
+<input class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600" id="report-date-from" type="date" value="2025-05-18">
+</div>
+<div class="relative">
+<label class="block text-[10px] font-mono text-slate-500 mb-0.5" for="report-date-to">To Date</label>
+<input class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600" id="report-date-to" type="date" value="2025-05-19">
+</div>
+</div>
+<p class="text-[11px] text-slate-500 mt-1.5 font-mono">
+                  Active Window: 2025-05-18 00:00:00 → 2025-05-19 23:59:59 PHT
+                </p>
+</div>
+<!-- System Summary Note -->
+<div class="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5 text-slate-600">
+<div class="flex items-center justify-between font-mono text-[11px]">
+<span class="">System Architecture:</span>
+<span class="text-slate-800 font-medium">Single-Operator Zero-Friction</span>
+</div>
+<div class="flex items-center justify-between font-mono text-[11px]">
+<span class="">Processing Engine:</span>
+<span class="text-indigo-700 font-medium">In-Memory WAL Streaming</span>
+</div>
+</div>
+</div>
+<!-- Prominent Primary Action Button -->
+<div class="pt-6">
+<button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 px-4 rounded-lg shadow-sm hover:shadow transition flex items-center justify-center space-x-2 text-sm focus:ring-4 focus:ring-indigo-500/20" onclick="proceedToReview()" type="button">
+<span class="material-symbols-outlined text-[18px]">filter_alt</span>
+<span class="font-semibold">Process &amp; Filter Data</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Card: 3 Dedicated File Drop Zones -->
+<div class="lg:col-span-7 space-y-4">
+<div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
+<div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+<div>
+<h2 class="text-sm font-bold uppercase tracking-wider text-slate-900">Required Source Files</h2>
+<p class="text-xs text-slate-500 mt-0.5">3 verified spreadsheet feeds linked for deterministic consolidation.</p>
+</div>
+<span class="text-[11px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-semibold">
+                3 of 3 Loaded
+              </span>
+</div>
+<!-- 3 Dedicated Cards -->
+<div class="space-y-3.5">
+<!-- Card 1: Volare Call/DRR Export -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">
+                      XLS
+                    </div>
+<div>
+<div class="flex items-center space-x-2">
+<span class="text-xs font-bold text-slate-900">Volare Call/DRR Export (.xlsx)</span>
+<span class="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-medium">Loaded</span>
+</div>
+<p class="text-xs text-slate-600 font-mono mt-0.5">volare_drr_export_20250519.xlsx</p>
+<p class="text-[11px] text-slate-500 mt-0.5">Daily callout effort log &amp; tele-dialer remark trail</p>
+<div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono mt-1">
+<span class="font-semibold text-slate-700">42,150 Rows</span>
+<span class="">•</span>
+<span class="">4.8 MB</span>
+<span class="">•</span>
+<span class="truncate max-w-[190px]" title="SHA-256: d8f3a91b24e6a099">SHA: d8f3a91b24e6...</span>
+</div>
+</div>
+</div>
+<button class="text-xs text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 font-medium transition shadow-2xs" onclick="showToast('Volare feed refreshed')" type="button">
+                    Replace
+                  </button>
+</div>
+</div>
+<!-- Card 2: Field Visitation File -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">
+                      XLS
+                    </div>
+<div>
+<div class="flex items-center space-x-2">
+<span class="text-xs font-bold text-slate-900">Field Visitation File (.xlsx)</span>
+<span class="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-medium">Loaded</span>
+</div>
+<p class="text-xs text-slate-600 font-mono mt-0.5">field_agent_remarks_20250519.xlsx</p>
+<p class="text-[11px] text-slate-500 mt-0.5">Repossessor &amp; field ground remarks feed</p>
+<div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono mt-1">
+<span class="font-semibold text-slate-700">7,850 Rows</span>
+<span class="">•</span>
+<span class="">1.2 MB</span>
+<span class="">•</span>
+<span class="truncate max-w-[190px]" title="SHA-256: 7b29ec6034aa21">SHA: 7b29ec6034aa...</span>
+</div>
+</div>
+</div>
+<button class="text-xs text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 font-medium transition shadow-2xs" onclick="showToast('Field file refreshed')" type="button">
+                    Replace
+                  </button>
+</div>
+</div>
+<!-- Card 3: Account Master Reference -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 hover:bg-slate-50 transition">
+<div class="flex items-start justify-between">
+<div class="flex items-start space-x-3">
+<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono text-xs flex items-center justify-center font-bold flex-shrink-0 mt-0.5">
+                      XLS
+                    </div>
+<div>
+<div class="flex items-center space-x-2">
+<span class="text-xs font-bold text-slate-900">Account Master Reference (.xlsx)</span>
+<span class="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-medium">Loaded</span>
+</div>
+<p class="text-xs text-slate-600 font-mono mt-0.5">rcbc_autoloan_clerk_master_2025.xlsx</p>
+<p class="text-[11px] text-slate-500 mt-0.5">Endorsement clerk file for CH-code to Account Number lookup</p>
+<div class="flex items-center space-x-2 text-[10px] text-slate-400 font-mono mt-1">
+<span class="font-semibold text-slate-700">50,000 Reference Accounts</span>
+<span class="">•</span>
+<span class="">9.1 MB</span>
+</div>
+</div>
+</div>
+<button class="text-xs text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 font-medium transition shadow-2xs" onclick="showToast('Master reference refreshed')" type="button">
+                    Replace
+                  </button>
+</div>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-mono">
+<span class="flex items-center gap-1 text-emerald-700">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+                All feeds checksummed and schema-validated
+              </span>
+<span class="">Single-operator mode active</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ============================================================= -->
+<!-- SCREEN 2: EXCEPTION REVIEW QUEUE (ON-DEMAND TRIAGE)          -->
+<!-- ============================================================= -->
+<section class="tab-content" id="tab-review">
+<!-- Banner Stats (42,150 / 40,800 / 1,345 / 5 Flagged) -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+<!-- Total Ingested -->
+<div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+<span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Total Ingested</span>
+<div class="mt-1 flex items-baseline justify-between">
+<span class="text-2xl font-bold font-mono text-slate-900">42,150</span>
+<span class="text-xs font-mono text-slate-400">100% Window</span>
+</div>
+<div class="w-full bg-slate-100 h-1.5 rounded-full mt-2.5">
+<div class="bg-slate-700 h-full w-full rounded-full"></div>
+</div>
+</div>
+<!-- Clean & Auto-Resolved (Soft Green) -->
+<div class="bg-emerald-50/40 rounded-xl border border-emerald-200/80 p-4 shadow-xs">
+<span class="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider block">Clean &amp; Auto-Resolved</span>
+<div class="mt-1 flex items-baseline justify-between">
+<span class="text-2xl font-bold font-mono text-emerald-700" id="stat-clean">40,800</span>
+<span class="text-xs font-mono text-emerald-600 font-medium">96.8% Auto-Pass</span>
+</div>
+<div class="w-full bg-emerald-100 h-1.5 rounded-full mt-2.5">
+<div class="bg-emerald-500 h-full w-full rounded-full"></div>
+</div>
+</div>
+<!-- Excluded System Noise (Soft Slate) -->
+<div class="bg-slate-50 rounded-xl border border-slate-200 p-4 shadow-xs">
+<span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Excluded System Noise</span>
+<div class="mt-1 flex items-baseline justify-between">
+<span class="text-2xl font-bold font-mono text-slate-600" id="stat-excluded">1,345</span>
+<span class="text-xs font-mono text-slate-400">Rules Applied</span>
+</div>
+<div class="w-full bg-slate-200 h-1.5 rounded-full mt-2.5">
+<div class="bg-slate-400 h-full w-full rounded-full"></div>
+</div>
+</div>
+<!-- Flagged Exceptions (Amber with Action Required Badge) -->
+<div class="bg-amber-50/60 rounded-xl border border-amber-300 p-4 shadow-xs">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-semibold text-amber-900 uppercase tracking-wider">Flagged Exceptions</span>
+<span class="text-[10px] font-mono font-bold bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
+              Action Required
+            </span>
+</div>
+<div class="mt-1 flex items-baseline justify-between">
+<span class="text-2xl font-bold font-mono text-amber-700" id="stat-flagged">5</span>
+<span class="text-xs font-mono text-amber-800 font-medium">Pending Triage</span>
+</div>
+<div class="w-full bg-amber-200 h-1.5 rounded-full mt-2.5">
+<div class="bg-amber-600 h-full w-full rounded-full" id="stat-flagged-bar"></div>
+</div>
+</div>
+</div>
+<!-- Exception Triage Table Card -->
+<div class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+<!-- Filter / Note Bar -->
+<div class="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50/70 text-xs">
+<div class="flex items-center space-x-2 text-slate-700 font-medium">
+<span class="w-2 h-2 rounded-full bg-amber-500"></span>
+<span class="">Displaying 5 of 5 flagged exceptions requiring operator resolution • <strong class="text-emerald-700 font-mono">40,800 clean records pre-approved</strong></span>
+</div>
+<div class="font-mono text-[11px] text-slate-500">
+            Sanitized Rule: Tags (BCAL, L3, INB, OBD, SRC) Stripped
+          </div>
+</div>
+<!-- Exception Triage Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left text-xs text-slate-700" id="review-table">
+<thead class="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+<tr>
+<th class="py-3 px-4 w-36 font-mono" scope="col">CH Code / Resolved Acct</th>
+<th class="py-3 px-4 w-48" scope="col">Contact &amp; Relation Tag</th>
+<th class="py-3 px-4 min-w-[280px]" scope="col">Sanitized Remark</th>
+<th class="py-3 px-3 w-36 text-center font-mono" scope="col">Length Counter</th>
+<th class="py-3 px-4 min-w-[220px]" scope="col">Collection Status Update</th>
+<th class="py-3 px-4 min-w-[170px]" scope="col">Reason for Default (RFD)</th>
+<th class="py-3 px-4 w-24 text-center" scope="col">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-200 font-normal">
+<!-- ROW 1: Mother [Representative] - 218 chars (> 200) -->
+<tr class="hover:bg-slate-50/80 transition review-row" id="row-1">
+<td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+<div class="">CH-202509-0012</div>
+<div class="text-[10px] text-slate-400">Acct: 0048-9921-04</div>
+</td>
+<td class="py-3 px-4">
+<div class="font-semibold text-slate-900">Corazon Santos</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 mt-1">
+                    Mother [Representative]
+                  </span>
+</td>
+<td class="py-3 px-4">
+<div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+<span id="remark-1" class="">TALKED TO MOTHER CORAZON. BORROWER OUT OF COUNTRY TEMPORARILY. REQUESTED 15-DAY EXTENSION ON ACCOUNT DUE TO DELAYED SALARY REMITTANCE VIA OVERSEAS WIRE TRANSFER. PTP ON OR BEFORE JUNE 5 INITIAL DOWN PAYMENT CONFIRMED.</span>
+<button class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans" onclick="copyRemark('remark-1')" type="button">
+                      Copy
+                    </button>
+</div>
+</td>
+<td class="py-3 px-3 text-center">
+<span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                    218/200 chars - Truncation Needed
+                  </span>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">CLIENT POSITIVE/UNIT POSITIVE (Actual Contact - Rep)</option>
+<option>CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact - Client)</option>
+<option>CLIENT NEGATIVE/UNIT NEGATIVE (No Contact)</option>
+<option>RESOLVED (Full Payment / Retained)</option>
+</select>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">Delayed Salary</option>
+<option>Medical Expense</option>
+<option>Borrower Refused</option>
+<option>Business Slowdown</option>
+</select>
+</td>
+<td class="py-3 px-4 text-center">
+<div class="flex items-center justify-center space-x-1.5">
+<button class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs" onclick="approveRow('row-1')" title="Approve" type="button">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</button>
+<button class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs" onclick="excludeRow('row-1')" title="Exclude" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 2: Neighbor [Informant] - 147 chars (<200) -->
+<tr class="hover:bg-slate-50/80 transition review-row" id="row-2">
+<td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+<div class="">CH-202509-0045</div>
+<div class="text-[10px] text-slate-400">Acct: 0048-9930-41</div>
+</td>
+<td class="py-3 px-4">
+<div class="font-semibold text-slate-900">Mang Ben (Building Guard)</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300 mt-1">
+                    Neighbor [Informant]
+                  </span>
+</td>
+<td class="py-3 px-4">
+<div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+<span id="remark-2" class="">SPOKE W/ APARTMENT GUARD. UNIT OBSERVED PARKED AT BASEMENT. BORROWER NOT HOME, REPORTED OUT SINCE EARLY MORNING. LEFT CALL CARD FOR CONTACT.</span>
+<button class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans" onclick="copyRemark('remark-2')" type="button">
+                      Copy
+                    </button>
+</div>
+</td>
+<td class="py-3 px-3 text-center">
+<span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
+                    147/200 chars
+                  </span>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact - Client)</option>
+<option>CLIENT NEGATIVE/UNIT NEGATIVE (No Contact)</option>
+<option>CLIENT POSITIVE/UNIT POSITIVE (Actual Contact - Rep)</option>
+</select>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">Borrower Refused</option>
+<option>Delayed Salary</option>
+<option>Medical Expense</option>
+<option>Business Slowdown</option>
+</select>
+</td>
+<td class="py-3 px-4 text-center">
+<div class="flex items-center justify-center space-x-1.5">
+<button class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs" onclick="approveRow('row-2')" title="Approve" type="button">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</button>
+<button class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs" onclick="excludeRow('row-2')" title="Exclude" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 3: Sister [Representative] - 157 chars (<200) -->
+<tr class="hover:bg-slate-50/80 transition review-row" id="row-3">
+<td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+<div class="">CH-202509-0088</div>
+<div class="text-[10px] text-slate-400">Acct: 0048-9931-90</div>
+</td>
+<td class="py-3 px-4">
+<div class="font-semibold text-slate-900">Clarissa Dalisay</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 mt-1">
+                    Sister [Representative]
+                  </span>
+</td>
+<td class="py-3 px-4">
+<div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+<span id="remark-3" class="">SISTER CONFIRMED HOSPITALIZATION OF BORROWER FOLLOWING ACCIDENT. UNABLE TO PAY CURRENT AMORTIZATION. REQUESTING HARDSHIP PROGRAM DETAILS VIA EMAIL.</span>
+<button class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans" onclick="copyRemark('remark-3')" type="button">
+                      Copy
+                    </button>
+</div>
+</td>
+<td class="py-3 px-3 text-center">
+<span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
+                    157/200 chars
+                  </span>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">CLIENT POSITIVE/UNIT POSITIVE (Actual Contact - Rep)</option>
+<option>CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact - Client)</option>
+<option>RESOLVED (Full Payment / Retained)</option>
+</select>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">Medical Expense</option>
+<option>Delayed Salary</option>
+<option>Borrower Refused</option>
+<option>Business Slowdown</option>
+</select>
+</td>
+<td class="py-3 px-4 text-center">
+<div class="flex items-center justify-center space-x-1.5">
+<button class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs" onclick="approveRow('row-3')" title="Approve" type="button">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</button>
+<button class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs" onclick="excludeRow('row-3')" title="Exclude" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 4: Borrower [Principal] - 182 chars (<200) -->
+<tr class="hover:bg-slate-50/80 transition review-row" id="row-4">
+<td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+<div class="">CH-202509-0112</div>
+<div class="text-[10px] text-slate-400">Acct: 0048-9933-44</div>
+</td>
+<td class="py-3 px-4">
+<div class="font-semibold text-slate-900">Arthur Gomez</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-300 mt-1">
+                    Principal Borrower
+                  </span>
+</td>
+<td class="py-3 px-4">
+<div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+<span id="remark-4" class="">DIRECT CONTACT W/ BORROWER ARTHUR. REFUSED TO DISCUSS DEFAULT DETAILS, VERBALLY COMBATIVE, CLAIMED DISPUTE ON INSURANCE POLICIES. DEMANDED FORMAL ENDORSEMENT NOTICE.</span>
+<button class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans" onclick="copyRemark('remark-4')" type="button">
+                      Copy
+                    </button>
+</div>
+</td>
+<td class="py-3 px-3 text-center">
+<span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
+                    182/200 chars
+                  </span>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">CLIENT POSITIVE/UNIT POSITIVE (Actual Contact - Client)</option>
+<option>CLIENT NEGATIVE/UNIT NEGATIVE (Refusal)</option>
+</select>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">Borrower Refused</option>
+<option>Delayed Salary</option>
+<option>Medical Expense</option>
+<option>Business Slowdown</option>
+</select>
+</td>
+<td class="py-3 px-4 text-center">
+<div class="flex items-center justify-center space-x-1.5">
+<button class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs" onclick="approveRow('row-4')" title="Approve" type="button">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</button>
+<button class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs" onclick="excludeRow('row-4')" title="Exclude" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- ROW 5: Spouse [Representative] - 219 chars (> 200) -->
+<tr class="hover:bg-slate-50/80 transition review-row" id="row-5">
+<td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+<div class="">CH-202509-0158</div>
+<div class="text-[10px] text-slate-400">Acct: 0048-9935-01</div>
+</td>
+<td class="py-3 px-4">
+<div class="font-semibold text-slate-900">Evelyn Tan</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 mt-1">
+                    Spouse [Representative]
+                  </span>
+</td>
+<td class="py-3 px-4">
+<div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+<span id="remark-5" class="">CONFERRED W/ SPOUSE EVELYN AT RESIDENCE. REPORTED SEVERE BUSINESS SLOWDOWN IN HARDWARE DISTRIBUTION DUE TO PORT CONGESTION. REVENUE DOWN 40%. CAN MAKE PARTIAL REMITTANCE THIS COMING FRIDAY MAY 23RD GUARANTEED.</span>
+<button class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans" onclick="copyRemark('remark-5')" type="button">
+                      Copy
+                    </button>
+</div>
+</td>
+<td class="py-3 px-3 text-center">
+<span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                    219/200 chars - Truncation Needed
+                  </span>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">CLIENT POSITIVE/UNIT POSITIVE (Actual Contact - Rep)</option>
+<option>CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact - Client)</option>
+</select>
+</td>
+<td class="py-3 px-4">
+<select class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium">
+<option selected="">Business Slowdown</option>
+<option>Delayed Salary</option>
+<option>Medical Expense</option>
+<option>Borrower Refused</option>
+</select>
+</td>
+<td class="py-3 px-4 text-center">
+<div class="flex items-center justify-center space-x-1.5">
+<button class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs" onclick="approveRow('row-5')" title="Approve" type="button">
+<span class="material-symbols-outlined text-[18px]">check</span>
+</button>
+<button class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs" onclick="excludeRow('row-5')" title="Exclude" type="button">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- All Resolved Notice -->
+<div class="hidden p-8 text-center bg-emerald-50/40 border-t border-emerald-100" id="all-reviewed-state">
+<span class="material-symbols-outlined text-emerald-600 text-[36px]">verified</span>
+<h4 class="text-sm font-bold text-slate-900 mt-1">All Flagged Exceptions Triaged!</h4>
+<p class="text-xs text-slate-500 mt-0.5">All 5 exceptions have been resolved. Proceed to generate export packages.</p>
+</div>
+<!-- Bottom Action Bar -->
+<div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+<button class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold transition shadow-2xs flex items-center space-x-1.5" onclick="approveAllClean()" type="button">
+<span class="material-symbols-outlined text-[16px] text-emerald-600">done_all</span>
+<span class="">Approve All Clean (40,800)</span>
+</button>
+<div class="flex items-center space-x-2">
+<button class="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium transition shadow-2xs" onclick="switchTab('tab-setup')" type="button">
+              Back to Setup
+            </button>
+<button class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition shadow-xs flex items-center space-x-1.5" onclick="switchTab('tab-export')" type="button">
+<span class="">Proceed to Export &amp; Download</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- ============================================================= -->
+<!-- SCREEN 3: EXPORT & DOWNLOAD CENTER                            -->
+<!-- ============================================================= -->
+<section class="tab-content" id="tab-export">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+<!-- Left: Pre-Export Reconciliation Summary Card -->
+<div class="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+<div>
+<div class="border-b border-slate-100 pb-3 mb-4">
+<h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Pre-Export Summary</h3>
+<p class="text-xs text-slate-500 mt-0.5">Audit-locked reconciliation before rendering final openpyxl workbooks.</p>
+</div>
+<div class="space-y-3 font-mono text-xs">
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-900">
+<span class="flex items-center gap-2 font-medium">
+<span class="w-2 h-2 rounded-full bg-emerald-600"></span>
+                  Included &amp; Approved Rows
+                </span>
+<span class="font-bold text-sm" id="summary-included">40,805</span>
+</div>
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
+<span class="flex items-center gap-2 font-medium">
+<span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                  Excluded System Noise
+                </span>
+<span class="font-bold text-sm" id="summary-excluded">1,345</span>
+</div>
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
+<span class="flex items-center gap-2 font-medium text-slate-600">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  Unresolved Exceptions
+                </span>
+<span class="font-bold text-emerald-700 text-sm">0 (Full Reconciliation Verified)</span>
+</div>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+<span class="">Conservation Target: <strong class="text-slate-800">42,150 Records</strong></span>
+<span class="text-emerald-700 font-semibold">100% Balanced</span>
+</div>
+</div>
+<!-- Right: Export Options & Security Notice -->
+<div class="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+<div>
+<div class="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
+<div>
+<h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Export Scope &amp; Encryption</h3>
+<p class="text-xs text-slate-500 mt-0.5">Select delivery scope and verify security packaging standards.</p>
+</div>
+<span class="text-[11px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-semibold">
+                RCBC Fixed Standard
+              </span>
+</div>
+<!-- Radio Options -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+<label class="flex items-start p-3 rounded-lg border-2 border-indigo-500 bg-indigo-50/20 cursor-pointer">
+<input checked="" class="mt-0.5 text-indigo-600 focus:ring-indigo-500" name="export-scope" type="radio" value="full">
+<div class="ml-2.5">
+<span class="block text-xs font-bold text-slate-900">Full Export (Standard Daily Submission)</span>
+<span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">Generates full 40,805 clean records formatted to bank schema specs.</span>
+</div>
+</label>
+<label class="flex items-start p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+<input class="mt-0.5 text-indigo-600 focus:ring-indigo-500" name="export-scope" type="radio" value="partial">
+<div class="ml-2.5">
+<span class="block text-xs font-bold text-slate-900">Partial Export (Approved Exceptions Only)</span>
+<span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">Restricts export strictly to manually approved exceptions.</span>
+</div>
+</label>
+</div>
+<!-- Encryption Pill Notice -->
+<div class="flex items-center space-x-2 p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-900">
+<span class="material-symbols-outlined text-amber-600 text-[18px]">lock</span>
+<span class="">Password convention: <strong class="font-mono bg-amber-100 text-amber-950 px-1.5 py-0.5 rounded border border-amber-300">[SEP2026]</strong> (AES-256 Bank Standard).</span>
+</div>
+</div>
+<!-- Primary Action Button -->
+<div class="pt-5 mt-4 border-t border-slate-100 flex items-center justify-between">
+<span class="text-xs text-slate-500 font-mono">Engine: openpyxl Native Streamer</span>
+<button class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-sm text-xs flex items-center space-x-2 transition focus:ring-4 focus:ring-indigo-500/20" id="btn-gen-workbooks" onclick="generateWorkbooks()" type="button">
+<span class="material-symbols-outlined text-[16px]">bolt</span>
+<span class="">Generate Bank CSR Workbooks</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Completed Download Cards -->
+<div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
+<div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+<div>
+<h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Completed Download Artifacts</h3>
+<p class="text-xs text-slate-500 mt-0.5">Immutable rendered artifacts verified and ready for secure dispatch.</p>
+</div>
+<span class="text-xs font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1.5 font-semibold">
+<span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            3 Artifacts Generated
+          </span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+<!-- Card 1: Bank-Facing Daily CSR (.xlsx) -->
+<div class="p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between">
+<div>
+<div class="flex items-start justify-between">
+<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono font-bold text-xs flex items-center justify-center">
+                  XLS
+                </div>
+<span class="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-semibold">
+                  ~8.4 MB
+                </span>
+</div>
+<h4 class="text-xs font-bold text-slate-900 mt-3">Bank-Facing Daily CSR</h4>
+<p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">RCBC_Auto_DailyCSR_20250519.xlsx</p>
+<!-- SHA-256 Hash with copy -->
+<div class="mt-2.5 p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+<div class="truncate mr-2">
+<span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+<span class="text-indigo-700 truncate block" id="hash-1">f4a91b2c892849e7b233a76cd41098ef</span>
+</div>
+<button class="text-slate-400 hover:text-slate-700" onclick="copyText('f4a91b2c892849e7b233a76cd41098ef')" title="Copy SHA" type="button">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-200/80">
+<button class="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-1.5 px-3 rounded border border-slate-300 text-xs flex items-center justify-center space-x-1.5 transition shadow-2xs" onclick="showToast('Downloading Bank-Facing Daily CSR...')" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+<span class="">Download File (.xlsx)</span>
+</button>
+</div>
+</div>
+<!-- Card 2: Internal Master Overall CSR (.xlsx) -->
+<div class="p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between">
+<div>
+<div class="flex items-start justify-between">
+<div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono font-bold text-xs flex items-center justify-center">
+                  XLS
+                </div>
+<span class="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-semibold">
+                  ~14.2 MB
+                </span>
+</div>
+<h4 class="text-xs font-bold text-slate-900 mt-3">Internal Master Overall CSR</h4>
+<p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">MC03_Internal_Master_20250519.xlsx</p>
+<!-- SHA-256 Hash with copy -->
+<div class="mt-2.5 p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+<div class="truncate mr-2">
+<span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+<span class="text-indigo-700 truncate block" id="hash-2">92bc871239ab78c31048df991823ef01</span>
+</div>
+<button class="text-slate-400 hover:text-slate-700" onclick="copyText('92bc871239ab78c31048df991823ef01')" title="Copy SHA" type="button">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-slate-200/80">
+<button class="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-1.5 px-3 rounded border border-slate-300 text-xs flex items-center justify-center space-x-1.5 transition shadow-2xs" onclick="showToast('Downloading Internal Master CSR...')" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+<span class="">Download File (.xlsx)</span>
+</button>
+</div>
+</div>
+<!-- Card 3: Encrypted Bank Package (.zip) -->
+<div class="p-4 rounded-lg border border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/50 transition flex flex-col justify-between">
+<div>
+<div class="flex items-start justify-between">
+<div class="w-8 h-8 rounded bg-indigo-600 text-white font-mono font-bold text-xs flex items-center justify-center">
+                  ZIP
+                </div>
+<div class="flex items-center space-x-1">
+<span class="text-[10px] font-mono text-indigo-900 bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
+                    AES-256
+                  </span>
+<span class="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-semibold">
+                    ~6.1 MB
+                  </span>
+</div>
+</div>
+<h4 class="text-xs font-bold text-slate-900 mt-3">Encrypted Bank Package</h4>
+<p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">RCBC_ReportPackage_20250519.zip</p>
+<!-- SHA-256 Hash with copy -->
+<div class="mt-2.5 p-2 bg-white rounded border border-indigo-100 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+<div class="truncate mr-2">
+<span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+<span class="text-indigo-700 truncate block" id="hash-3">3c78da0921bf3a8871e4905189bc2210</span>
+</div>
+<button class="text-slate-400 hover:text-slate-700" onclick="copyText('3c78da0921bf3a8871e4905189bc2210')" title="Copy SHA" type="button">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+</button>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-indigo-100">
+<button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded text-xs flex items-center justify-center space-x-1.5 transition shadow-sm" onclick="showToast('Downloading Encrypted AES-256 Archive...')" type="button">
+<span class="material-symbols-outlined text-[16px]">lock</span>
+<span class="">Download Package (.zip)</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Notification Toast (Fixed Bottom Right) -->
+<div class="fixed bottom-4 right-4 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-lg shadow-lg border border-slate-800 transform transition duration-200 pointer-events-none z-50 flex items-center space-x-2 translate-y-12 opacity-0" id="toast">
+<span class="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
+<span id="toast-message" class="">Custom Range selected</span>
+</div>
+<!-- JavaScript for Tab Switching, Exception Actions, and State Management -->
+<script>
+    let flaggedCount = 5;
+    let cleanCount = 40800;
+    let excludedCount = 1345;
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-message');
+      toastMsg.innerText = message;
+      toast.classList.remove('translate-y-12', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-12', 'opacity-0');
+      }, 2400);
+    }
+
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Checksum copied to clipboard');
+      }).catch(() => {
+        showToast('Failed to copy');
+      });
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+
+      const tabs = [
+        { btn: 'btn-tab-setup', id: 'tab-setup' },
+        { btn: 'btn-tab-review', id: 'tab-review' },
+        { btn: 'btn-tab-export', id: 'tab-export' }
+      ];
+
+      tabs.forEach(t => {
+        const btn = document.getElementById(t.btn);
+        if (t.id === tabId) {
+          btn.className = 'tab-btn group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs';
+          const badge = btn.querySelector('span');
+          if (badge) badge.className = 'w-5 h-5 rounded-full bg-indigo-600 text-white font-mono text-[11px] flex items-center justify-center font-bold';
+        } else {
+          btn.className = 'tab-btn group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100';
+          const badge = btn.querySelector('span');
+          if (badge) badge.className = 'w-5 h-5 rounded-full bg-slate-200 text-slate-700 font-mono text-[11px] flex items-center justify-center font-bold group-hover:bg-slate-300';
+        }
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function proceedToReview() {
+      showToast('Data processed: 40,800 clean records verified, 5 flagged exceptions loaded');
+      switchTab('tab-review');
+    }
+
+    function setPresetDate(type) {
+      const dateInput = document.getElementById('report-date');
+      if (type === 'yesterday') {
+        dateInput.value = '2025-05-19';
+        showToast('Date set to Yesterday (2025-05-19)');
+      } else {
+        dateInput.value = '2025-05-18';
+        showToast('Date window set to Weekend Consolidate (2025-05-18)');
+      }
+    }
+
+    function copyRemark(elementId) {
+      const text = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Sanitized remark copied');
+      }).catch(() => {
+        showToast('Failed to copy');
+      });
+    }
+
+    function updateCounters() {
+      document.getElementById('stat-flagged').innerText = flaggedCount;
+      document.getElementById('stat-clean').innerText = cleanCount.toLocaleString();
+      document.getElementById('stat-excluded').innerText = excludedCount.toLocaleString();
+      document.getElementById('tab-flagged-badge').innerText = `${flaggedCount} Flagged`;
+      
+      const sumIncluded = document.getElementById('summary-included');
+      if (sumIncluded) sumIncluded.innerText = cleanCount.toLocaleString();
+
+      if (flaggedCount <= 0) {
+        document.getElementById('tab-flagged-badge').className = 'px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-100 text-emerald-800 border border-emerald-300 font-semibold';
+        document.getElementById('tab-flagged-badge').innerText = '0 Flagged';
+        document.getElementById('all-reviewed-state').classList.remove('hidden');
+      }
+    }
+
+    function approveRow(rowId) {
+      const row = document.getElementById(rowId);
+      if (row) {
+        row.style.opacity = '0.35';
+        row.style.pointerEvents = 'none';
+        row.classList.add('bg-emerald-50');
+        flaggedCount = Math.max(0, flaggedCount - 1);
+        cleanCount += 1;
+        updateCounters();
+        showToast('Exception record approved');
+      }
+    }
+
+    function excludeRow(rowId) {
+      const row = document.getElementById(rowId);
+      if (row) {
+        row.style.opacity = '0.35';
+        row.style.pointerEvents = 'none';
+        row.classList.add('bg-rose-50');
+        flaggedCount = Math.max(0, flaggedCount - 1);
+        excludedCount += 1;
+        updateCounters();
+        showToast('Exception excluded as system noise');
+      }
+    }
+
+    function approveAllClean() {
+      document.querySelectorAll('.review-row').forEach(row => {
+        row.style.opacity = '0.35';
+        row.style.pointerEvents = 'none';
+        row.classList.add('bg-emerald-50');
+      });
+      cleanCount += flaggedCount;
+      flaggedCount = 0;
+      updateCounters();
+      showToast('All 40,800 clean records pre-approved');
+    }
+
+    function generateWorkbooks() {
+      const btn = document.getElementById('btn-gen-workbooks');
+      btn.innerHTML = `
+        <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>Streaming openpyxl...</span>
+      `;
+      setTimeout(() => {
+        btn.innerHTML = `
+          <span class="material-symbols-outlined text-[16px] text-emerald-300">verified</span>
+          <span>Workbooks Regenerated!</span>
+        `;
+        showToast('Bank workbooks compiled & checksums updated.');
+      }, 1000);
+    }
+  </script>
+
+
+</body></html>

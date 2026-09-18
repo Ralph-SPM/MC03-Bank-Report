@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% set active_step = 'export' %}
+{% set unresolved = summary.unresolved if summary is defined else 0 %}
+{% block title %}Export &amp; Download Center — MC03 DA Portal{% endblock %}
+
+{% block content %}
+<section id="tab-export">
+  {% if error and not summary %}
+  <div role="alert" class="p-6 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-sm shadow-xs mb-6">
+    <div class="flex items-center space-x-2 font-bold text-base mb-1">
+      <span class="material-symbols-outlined text-rose-600">error</span>
+      <span>Run Not Found or Error Occurred</span>
+    </div>
+    <p class="font-mono text-xs text-rose-800">{{ error }}</p>
+    <div class="mt-4">
+      <a href="/" class="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-900 text-xs font-semibold hover:bg-rose-100 transition">
+        <span class="material-symbols-outlined text-[16px]">arrow_back</span>
+        <span>Return to Setup</span>
+      </a>
+    </div>
+  </div>
+  {% else %}
+
+  {% if error %}
+  <div role="alert" class="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs shadow-xs flex items-center space-x-2">
+    <span class="material-symbols-outlined text-rose-600">warning</span>
+    <span>{{ error }}</span>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+    <!-- Left: Pre-Export Reconciliation Summary Card -->
+    <div class="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+      <div>
+        <div class="border-b border-slate-100 pb-3 mb-4">
+          <h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Pre-Export Summary</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Audit-locked reconciliation before rendering final openpyxl workbooks.</p>
+        </div>
+        <dl class="sr-only">
+          <dt>Included Rows</dt><dd>{{ summary.included }}</dd>
+          <dt>Excluded Noise</dt><dd>{{ summary.excluded }}</dd>
+          <dt>Unresolved Exceptions</dt><dd>{{ summary.unresolved }}</dd>
+        </dl>
+        <dl class="space-y-3 font-mono text-xs">
+          <div class="flex items-center justify-between p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-900">
+            <dt class="flex items-center gap-2 font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
+              Included Rows
+            </dt>
+            <dd class="font-bold text-sm" id="summary-included">{{ summary.included }}</dd>
+          </div>
+          <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
+            <dt class="flex items-center gap-2 font-medium">
+              <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+              Excluded Noise
+            </dt>
+            <dd class="font-bold text-sm" id="summary-excluded">{{ summary.excluded }}</dd>
+          </div>
+          <div class="flex items-center justify-between p-2.5 rounded-lg {% if summary.unresolved == 0 %}bg-slate-50 text-slate-700 border border-slate-200{% else %}bg-amber-50 text-amber-900 border border-amber-200{% endif %}">
+            <dt class="flex items-center gap-2 font-medium">
+              <span class="w-2 h-2 rounded-full {% if summary.unresolved == 0 %}bg-emerald-500{% else %}bg-amber-500{% endif %}"></span>
+              Unresolved Exceptions
+            </dt>
+            <dd class="font-bold text-sm {% if summary.unresolved == 0 %}text-emerald-700{% else %}text-amber-700{% endif %}">{{ summary.unresolved }}</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+        <span>Run ID: <strong class="text-slate-800">{{ run_id }}</strong></span>
+        <span class="{% if summary.unresolved == 0 %}text-emerald-700{% else %}text-amber-700{% endif %} font-semibold">
+          {% if summary.unresolved == 0 %}100% Balanced{% else %}Triage Pending{% endif %}
+        </span>
+      </div>
+    </div>
+
+    <!-- Right: Export Options & Security Notice -->
+    <div class="lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-xs p-5 flex flex-col justify-between">
+      <div>
+        <div class="border-b border-slate-100 pb-3 mb-4 flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Export Scope &amp; Encryption</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Select delivery scope and verify security packaging standards.</p>
+          </div>
+          <span class="text-[11px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-semibold">
+            RCBC Fixed Standard
+          </span>
+        </div>
+
+        <!-- Radio Options -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <label class="flex items-start p-3 rounded-lg border-2 border-indigo-500 bg-indigo-50/20 cursor-pointer">
+            <input checked class="mt-0.5 text-indigo-600 focus:ring-indigo-500" name="export-scope" type="radio" value="full">
+            <div class="ml-2.5">
+              <span class="block text-xs font-bold text-slate-900">Full Export (Standard Daily Submission)</span>
+              <span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">Generates full clean records formatted to bank schema specs.</span>
+            </div>
+          </label>
+          <label class="flex items-start p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+            <input class="mt-0.5 text-indigo-600 focus:ring-indigo-500" name="export-scope" type="radio" value="partial">
+            <div class="ml-2.5">
+              <span class="block text-xs font-bold text-slate-900">Partial Export (Approved Exceptions Only)</span>
+              <span class="block text-[11px] text-slate-500 mt-0.5 leading-snug">Restricts export strictly to manually approved exceptions.</span>
+            </div>
+          </label>
+        </div>
+
+        <!-- Encryption Pill Notice -->
+        <div class="flex items-center space-x-2 p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-900">
+          <span class="material-symbols-outlined text-amber-600 text-[18px]">lock</span>
+          <span>Password convention: <strong class="font-mono bg-amber-100 text-amber-950 px-1.5 py-0.5 rounded border border-amber-300">[SEP2026]</strong> (AES-256 Bank Standard).</span>
+        </div>
+      </div>
+
+      <!-- Primary Action Button -->
+      <div class="pt-5 mt-4 border-t border-slate-100 flex items-center justify-between">
+        <span class="text-xs text-slate-500 font-mono">Engine: openpyxl Native Streamer</span>
+        <form action="/export/{{ run_id }}/generate" method="post">
+          <button
+            type="submit"
+            id="btn-gen-workbooks"
+            {% if not can_generate %}disabled{% endif %}
+            class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-lg shadow-sm text-xs flex items-center space-x-2 transition focus:ring-4 focus:ring-indigo-500/20 cursor-pointer"
+          >
+            <span class="material-symbols-outlined text-[16px]">bolt</span>
+            <span>Generate Bank CSR Workbooks</span>
+          </button>
+        </form>
+      </div>
+      {% if not can_generate %}
+      <p role="alert" class="mt-2 text-[11px] text-amber-700 font-medium">Resolve all unresolved exceptions in Step 2 before generating artifacts.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Download Artifacts Card -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
+    <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+      <div>
+        <h3 class="text-sm font-bold uppercase tracking-wider text-slate-900">Completed Download Artifacts</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Immutable rendered artifacts verified and ready for secure dispatch.</p>
+      </div>
+      <span class="text-xs font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1.5 font-semibold">
+        <span class="w-2 h-2 rounded-full {% if downloads %}bg-emerald-500{% else %}bg-slate-400{% endif %}"></span>
+        {{ downloads | length if downloads else 0 }} Artifacts Available
+      </span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- Card 1: Bank-Facing Daily CSR (.xlsx) -->
+      <div class="p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between">
+        <div>
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono font-bold text-xs flex items-center justify-center">
+              XLS
+            </div>
+            <span class="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-semibold">
+              Bank Spec
+            </span>
+          </div>
+          <h4 class="text-xs font-bold text-slate-900 mt-3">Bank-Facing Daily CSR</h4>
+          <p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">RCBC_Auto_DailyCSR_{{ run_id[:8] }}.xlsx</p>
+
+          <!-- Checksum -->
+          <div class="mt-2.5 p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+            <div class="truncate mr-2">
+              <span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+              <span class="text-indigo-700 truncate block">f4a91b2c892849e7...</span>
+            </div>
+            <button class="text-slate-400 hover:text-slate-700 cursor-pointer" onclick="copyText('f4a91b2c892849e7b233a76cd41098ef')" title="Copy SHA" type="button">
+              <span class="material-symbols-outlined text-[14px]">content_copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-200/80">
+          {% set bank_dl = downloads | selectattr('key', 'equalto', 'bank_csr') | list if downloads else [] %}
+          {% if bank_dl and bank_dl[0].path %}
+          <a
+            href="/download/{{ run_id }}/bank_csr"
+            class="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-1.5 px-3 rounded border border-slate-300 text-xs flex items-center justify-center space-x-1.5 transition shadow-2xs"
+          >
+            <span class="material-symbols-outlined text-[16px]">download</span>
+            <span>Download File (.xlsx)</span>
+          </a>
+          {% else %}
+          <button disabled class="w-full bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded border border-slate-200 text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed">
+            <span class="material-symbols-outlined text-[16px]">download</span>
+            <span>Not Generated Yet</span>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Card 2: Internal Master Overall CSR (.xlsx) -->
+      <div class="p-4 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition flex flex-col justify-between">
+        <div>
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded bg-indigo-100 text-indigo-700 font-mono font-bold text-xs flex items-center justify-center">
+              XLS
+            </div>
+            <span class="text-[10px] font-mono text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-semibold">
+              Master Log
+            </span>
+          </div>
+          <h4 class="text-xs font-bold text-slate-900 mt-3">Internal Master Overall CSR</h4>
+          <p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">MC03_Internal_Master_{{ run_id[:8] }}.xlsx</p>
+
+          <!-- Checksum -->
+          <div class="mt-2.5 p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+            <div class="truncate mr-2">
+              <span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+              <span class="text-indigo-700 truncate block">92bc871239ab78c3...</span>
+            </div>
+            <button class="text-slate-400 hover:text-slate-700 cursor-pointer" onclick="copyText('92bc871239ab78c31048df991823ef01')" title="Copy SHA" type="button">
+              <span class="material-symbols-outlined text-[14px]">content_copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-200/80">
+          {% set internal_dl = downloads | selectattr('key', 'equalto', 'internal_csr') | list if downloads else [] %}
+          {% if internal_dl and internal_dl[0].path %}
+          <a
+            href="/download/{{ run_id }}/internal_csr"
+            class="w-full bg-white hover:bg-slate-100 text-slate-800 font-semibold py-1.5 px-3 rounded border border-slate-300 text-xs flex items-center justify-center space-x-1.5 transition shadow-2xs"
+          >
+            <span class="material-symbols-outlined text-[16px]">download</span>
+            <span>Download File (.xlsx)</span>
+          </a>
+          {% else %}
+          <button disabled class="w-full bg-slate-100 text-slate-400 font-semibold py-1.5 px-3 rounded border border-slate-200 text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed">
+            <span class="material-symbols-outlined text-[16px]">download</span>
+            <span>Not Generated Yet</span>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Card 3: Encrypted Bank Package (.zip) -->
+      <div class="p-4 rounded-lg border border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/50 transition flex flex-col justify-between">
+        <div>
+          <div class="flex items-start justify-between">
+            <div class="w-8 h-8 rounded bg-indigo-600 text-white font-mono font-bold text-xs flex items-center justify-center">
+              ZIP
+            </div>
+            <div class="flex items-center space-x-1">
+              <span class="text-[10px] font-mono text-indigo-900 bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
+                AES-256
+              </span>
+            </div>
+          </div>
+          <h4 class="text-xs font-bold text-slate-900 mt-3">Encrypted Bank Package</h4>
+          <p class="text-[11px] text-slate-500 font-mono mt-0.5 truncate">RCBC_ReportPackage_{{ run_id[:8] }}.zip</p>
+
+          <!-- Checksum -->
+          <div class="mt-2.5 p-2 bg-white rounded border border-indigo-100 font-mono text-[10px] text-slate-600 flex items-center justify-between">
+            <div class="truncate mr-2">
+              <span class="text-slate-400 block text-[9px] uppercase">SHA-256 Checksum:</span>
+              <span class="text-indigo-700 truncate block">3c78da0921bf3a88...</span>
+            </div>
+            <button class="text-slate-400 hover:text-slate-700 cursor-pointer" onclick="copyText('3c78da0921bf3a8871e4905189bc2210')" title="Copy SHA" type="button">
+              <span class="material-symbols-outlined text-[14px]">content_copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="mt-4 pt-3 border-t border-indigo-100">
+          {% set pkg_dl = downloads | selectattr('key', 'equalto', 'bank_package') | list if downloads else [] %}
+          {% if pkg_dl and pkg_dl[0].path %}
+          <a
+            href="/download/{{ run_id }}/bank_package"
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded text-xs flex items-center justify-center space-x-1.5 transition shadow-sm"
+          >
+            <span class="material-symbols-outlined text-[16px]">lock</span>
+            <span>Download Package (.zip)</span>
+          </a>
+          {% else %}
+          <button disabled class="w-full bg-slate-200 text-slate-400 font-semibold py-1.5 px-3 rounded text-xs flex items-center justify-center space-x-1.5 cursor-not-allowed">
+            <span class="material-symbols-outlined text-[16px]">lock</span>
+            <span>Not Generated Yet</span>
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

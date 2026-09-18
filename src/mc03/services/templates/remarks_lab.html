@@ -1,0 +1,607 @@
+{% extends "base.html" %}
+
+{% block title %}Remark Intelligence Lab &amp; Benchmark View{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  {% if error %}
+  <div role="alert" class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs shadow-xs">
+    <div class="flex items-center space-x-2 font-bold mb-1">
+      <span class="material-symbols-outlined text-rose-600 text-[18px]">error</span>
+      <span>Workbook Processing Error</span>
+    </div>
+    <p class="font-mono text-[11px] text-rose-800">{{ error }}</p>
+  </div>
+  {% endif %}
+
+  <!-- Header Section -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+    <div>
+      <div class="flex items-center space-x-2">
+        <span class="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center">
+          <span class="material-symbols-outlined text-xl">psychology</span>
+        </span>
+        <h1 class="text-xl font-bold text-slate-900 tracking-tight">Remark Intelligence Lab &amp; Benchmark View</h1>
+      </div>
+      <p class="text-xs text-slate-500 mt-1">
+        RCBC Auto Loan field remarks processor — Prohibited tag stripping, extended Filipino relation classification, RFD/CSU hierarchy ranking &amp; 200-character bank truncation.
+      </p>
+      <!-- AI Summarizer Status Indicator -->
+      <div class="flex flex-wrap items-center gap-2 mt-2">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold {% if groq_configured %}bg-emerald-50 text-emerald-700 border border-emerald-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">
+          <span class="w-1.5 h-1.5 rounded-full {% if groq_configured %}bg-emerald-500 animate-pulse{% else %}bg-amber-500{% endif %}"></span>
+          AI Summarizer: {{ groq_model | default('qwen/qwen3.8-27b') }}
+        </span>
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono {% if groq_batch %}bg-purple-50 text-purple-700 border border-purple-200{% else %}bg-slate-100 text-slate-700 border border-slate-200{% endif %}">
+          Batch Mode: {% if groq_batch %}ON (Concurrent){% else %}OFF (Sequential &amp; Rate-Paced){% endif %}
+        </span>
+        {% if report and report.ai_summarized_count %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
+          AI Summarized: {{ report.ai_summarized_count }} rows
+        </span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Upload / Quick Action with Date Selector -->
+    <div class="flex items-center">
+      <form id="uploadForm" action="/remarks-lab/analyze" method="post" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs shadow-xs space-x-2">
+          <span class="material-symbols-outlined text-slate-500 text-[18px]">calendar_month</span>
+          <div class="flex items-center space-x-1">
+            <label class="text-[10px] font-mono text-slate-500 uppercase font-semibold" for="date_from">From:</label>
+            <input type="date" name="date_from" id="date_from" value="{{ date_from | default('', true) }}" class="text-xs bg-white border border-slate-200 rounded px-1.5 py-0.5 font-mono text-slate-800 focus:ring-1 focus:ring-indigo-500">
+          </div>
+          <span class="text-slate-300">→</span>
+          <div class="flex items-center space-x-1">
+            <label class="text-[10px] font-mono text-slate-500 uppercase font-semibold" for="date_to">To:</label>
+            <input type="date" name="date_to" id="date_to" value="{{ date_to | default('', true) }}" class="text-xs bg-white border border-slate-200 rounded px-1.5 py-0.5 font-mono text-slate-800 focus:ring-1 focus:ring-indigo-500">
+          </div>
+        </div>
+
+        <label class="cursor-pointer inline-flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors">
+          <span class="material-symbols-outlined text-[18px]">upload_file</span>
+          <span>Upload FIELD RSULT Workbook</span>
+          <input type="file" name="workbook" id="workbookInput" accept=".xlsx,.xls" class="hidden" onchange="document.getElementById('uploadForm').submit()">
+        </label>
+      </form>
+    </div>
+  </div>
+
+  {% if report %}
+  <!-- Date Window Notification Banner if active -->
+  {% if report.date_from or report.date_to or (report.total_unfiltered_rows and report.total_unfiltered_rows > report.total_rows) %}
+  <div class="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs text-indigo-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+    <div class="flex items-center space-x-2">
+      <span class="material-symbols-outlined text-indigo-600 text-[20px]">filter_alt</span>
+      <span>
+        <strong>Date Window Filter:</strong>
+        {% if report.date_from and report.date_to %}
+          <span class="font-mono font-semibold">{{ report.date_from }}</span> to <span class="font-mono font-semibold">{{ report.date_to }}</span>
+        {% elif report.date_from %}
+          From <span class="font-mono font-semibold">{{ report.date_from }}</span> onwards
+        {% elif report.date_to %}
+          Up to <span class="font-mono font-semibold">{{ report.date_to }}</span>
+        {% endif %}
+        — Active Records: <strong class="font-mono text-indigo-800">{{ report.total_rows }}</strong> rows
+        {% if report.total_unfiltered_rows and report.total_unfiltered_rows > report.total_rows %}
+          (isolated from <span class="font-mono text-slate-600">{{ report.total_unfiltered_rows }}</span> total historical records in workbook)
+        {% endif %}
+      </span>
+    </div>
+    <a href="/remarks-lab" class="text-indigo-600 hover:text-indigo-800 font-medium text-xs underline underline-offset-2">Reset Filter</a>
+  </div>
+  {% endif %}
+  <!-- 1. KPI Summary Cards -->
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <!-- Card 1: Total Remarks Processed -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>Rows Analyzed</span>
+        <span class="material-symbols-outlined text-slate-400 text-sm">table_rows</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-2">
+        <span class="text-2xl font-bold font-mono text-slate-900">{{ report.total_rows }}</span>
+        <span class="text-[11px] text-slate-500">records</span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500">
+        {{ report.rows_with_ground_truth }} records with your entries to review
+      </div>
+    </div>
+
+    <!-- Card 2: Prohibited Tags Stripped -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>Prohibited Tags Stripped</span>
+        <span class="material-symbols-outlined text-amber-500 text-sm">cleaning_services</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-2">
+        <span class="text-2xl font-bold font-mono text-amber-600">{{ report.sanitized_tag_count }}</span>
+        <span class="text-[11px] text-amber-600 font-medium">sanitized</span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500">
+        BCAL, L3, INB, OBD, Phone, Email
+      </div>
+    </div>
+
+    <!-- Card 3: CSU Accuracy -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>CSU Agreement</span>
+        <span class="material-symbols-outlined text-indigo-500 text-sm">verified</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-2">
+        <span class="text-2xl font-bold font-mono {% if report.csu_accuracy_pct >= 90 %}text-emerald-600{% elif report.csu_accuracy_pct >= 75 %}text-indigo-600{% else %}text-amber-600{% endif %}">
+          {{ report.csu_accuracy_pct }}%
+        </span>
+        <span class="text-[11px] text-slate-500">agreement</span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500">
+        Agreement with your original entries
+      </div>
+    </div>
+
+    <!-- Card 4: RFD Accuracy -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>RFD Agreement</span>
+        <span class="material-symbols-outlined text-emerald-500 text-sm">schema</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-2">
+        <span class="text-2xl font-bold font-mono {% if report.rfd_accuracy_pct >= 90 %}text-emerald-600{% elif report.rfd_accuracy_pct >= 75 %}text-indigo-600{% else %}text-amber-600{% endif %}">
+          {{ report.rfd_accuracy_pct }}%
+        </span>
+        <span class="text-[11px] text-slate-500">agreement</span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500">
+        Agreement with your original entries
+      </div>
+    </div>
+
+    <!-- Card 5: 200-Char Truncations -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>200-Char Overflow Prevented</span>
+        <span class="material-symbols-outlined text-blue-500 text-sm">content_cut</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-2">
+        <span class="text-2xl font-bold font-mono text-blue-600">{{ report.char_overflow_prevented_count }}</span>
+        <span class="text-[11px] text-slate-500">rows trimmed</span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500">
+        100% upload compliance guaranteed
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Interactive Control Bar (Search, Filters, Export) -->
+  <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <!-- Filter Pills -->
+    <div class="flex flex-wrap items-center gap-1.5 text-xs">
+      <button onclick="setFilter('all')" id="pill-all" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-900 text-white shadow-xs">
+        All ({{ report.total_rows }})
+      </button>
+      <button onclick="setFilter('discrepancy')" id="pill-discrepancy" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
+        Differences for Review ({{ report.discrepancy_count }})
+      </button>
+      <button onclick="setFilter('representative')" id="pill-representative" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
+        Representatives ({{ report.representative_count }})
+      </button>
+      <button onclick="setFilter('informant')" id="pill-informant" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
+        Informants ({{ report.informant_count }})
+      </button>
+      <button onclick="setFilter('sanitized')" id="pill-sanitized" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
+        Tags Stripped ({{ report.sanitized_tag_count }})
+      </button>
+    </div>
+
+    <!-- Search Box & Export Action -->
+    <div class="flex items-center space-x-2">
+      <div class="relative w-full md:w-64">
+        <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
+          <span class="material-symbols-outlined text-[18px]">search</span>
+        </span>
+        <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Filter by text, acct, relation..." class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 focus:bg-white font-mono">
+      </div>
+      <button onclick="downloadEvaluatedExcel()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors whitespace-nowrap">
+        <span class="material-symbols-outlined text-[16px]">file_download</span>
+        <span>Export Bank-Ready Excel</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 3. Inspection & Comparison Table -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse text-xs">
+        <thead>
+          <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+            <th class="py-3 px-3 w-28">Row &amp; Date</th>
+            <th class="py-3 px-3 w-48">Account / Contact</th>
+            <th class="py-3 px-3 w-44">Relation Class</th>
+            <th class="py-3 px-3 min-w-[280px]">Raw vs Cleaned Remark</th>
+            <th class="py-3 px-3 w-72">Tool's Answer vs. Your Original Entry</th>
+            <th class="py-3 px-3 min-w-[220px]">Bank Upload (200 Chars)</th>
+          </tr>
+        </thead>
+        <tbody id="remarksTableBody" class="divide-y divide-slate-200 font-sans">
+          {% for r in report.rows[:1000] %}
+          <tr class="hover:bg-slate-50/80 transition-colors row-item"
+              data-category="{{ r.category_label | lower }}"
+              data-discrepancy="{{ 'true' if r.discrepancy_flag else 'false' }}"
+              data-sanitized="{{ 'true' if r.prohibited_tags_stripped else 'false' }}"
+              data-search="{{ r.account_number }} {{ r.contact_person }} {{ r.contact_relation }} {{ r.category_label }} {{ r.predicted_csu }} {{ r.predicted_rfd }} {{ r.row_date }} {{ r.raw_remarks | lower }}">
+
+            <!-- 1. Row Index & Flags -->
+            <td class="py-3 px-3 align-top font-mono text-[11px] text-slate-500">
+              <div class="font-bold text-slate-800">#{{ r.row_index }}</div>
+              {% if r.row_date %}
+              <div class="text-[10px] text-indigo-600 font-medium mt-0.5 flex items-center gap-1">
+                <span class="material-symbols-outlined text-[12px]">calendar_today</span>
+                <span>{{ r.row_date }}</span>
+              </div>
+              {% endif %}
+              {% if r.discrepancy_flag %}
+              <div class="mt-1">
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  DIFF
+                </span>
+              </div>
+              {% endif %}
+            </td>
+
+            <!-- 2. Account & Contact Person -->
+            <td class="py-3 px-3 align-top">
+              <div class="font-mono font-semibold text-slate-900">{{ r.account_number or 'N/A' }}</div>
+              {% if r.ch_code %}
+              <div class="text-[10px] font-mono text-slate-400">CH: {{ r.ch_code }}</div>
+              {% endif %}
+              <div class="mt-1 font-medium text-slate-700">{{ r.contact_person or '—' }}</div>
+              <div class="text-[11px] text-slate-500 italic">"{{ r.contact_relation or 'none stated' }}"</div>
+            </td>
+
+            <!-- 3. Relation Classification Badge -->
+            <td class="py-3 px-3 align-top">
+              {% if r.category_label == 'Representative' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5"></span>
+                Representative
+              </span>
+              {% elif r.category_label == 'Informant' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                Informant
+              </span>
+              {% elif r.category_label == 'Borrower' or r.category_label == 'Cardholder' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                Borrower
+              </span>
+              {% else %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                {{ r.category_label or 'none reached' }}
+              </span>
+              {% endif %}
+
+              <div class="mt-1 text-[10px] font-mono text-slate-500">
+                Role: <span class="font-semibold text-slate-700">{{ r.normalized_role }}</span>
+              </div>
+              {% if r.matched_relation_keyword %}
+              <div class="text-[9px] text-slate-500 font-mono mt-0.5">
+                {% if r.matched_relation_keyword.startswith('meta:') %}
+                Found in: contact list field ({{ r.matched_relation_keyword[5:] }})
+                {% elif r.matched_relation_keyword.startswith('remark:') %}
+                Found in: remark text ({{ r.matched_relation_keyword[7:] }})
+                {% else %}
+                Found in: remark text ({{ r.matched_relation_keyword }})
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
+
+            <!-- 4. Raw vs Cleaned Remarks -->
+            <td class="py-3 px-3 align-top">
+              <div class="space-y-1.5">
+                {% if r.raw_message %}
+                <div class="text-[11px] text-slate-700 bg-indigo-50/50 p-1.5 rounded border border-indigo-100">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-[9px] uppercase font-bold text-indigo-600 font-mono">Raw Field Message:</span>
+                    <span class="text-[9px] font-mono text-indigo-500">{{ r.raw_message|length }} chars</span>
+                  </div>
+                  <div class="line-clamp-3 text-[10px]">{{ r.raw_message }}</div>
+                </div>
+                {% endif %}
+                <div class="text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-1.5 rounded border border-slate-100">
+                  <span class="text-[9px] uppercase font-bold text-slate-400 block font-mono">Final Remarks:</span>
+                  {{ r.raw_remarks }}
+                </div>
+                {% if r.prohibited_tags_stripped %}
+                <div class="flex flex-wrap gap-1 items-center">
+                  <span class="text-[9px] text-rose-600 font-bold uppercase">Stripped:</span>
+                  {% for tag in r.prohibited_tags_stripped %}
+                  <span class="px-1.5 py-0.2 rounded text-[9px] font-mono bg-rose-50 text-rose-700 border border-rose-200">
+                    {{ tag }}
+                  </span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+            </td>
+
+            <!-- 5. Tool's Answer vs. Your Original Entry -->
+            <td class="py-3 px-3 align-top">
+              <div class="space-y-1.5 text-[11px]">
+                <!-- CSU Comparison -->
+                <div class="flex items-start justify-between border-b border-slate-100 pb-1">
+                  <span class="text-[10px] text-slate-400 font-mono mt-0.5">CSU:</span>
+                  <div class="text-right">
+                    <div class="font-semibold text-slate-800">
+                      <span class="text-[9px] text-slate-400 font-mono font-normal inline-block mr-1">Tool:</span>
+                      {{ r.predicted_csu }}
+                    </div>
+                    {% if r.manual_csu %}
+                    <div class="text-[10px] font-mono mt-0.5 {% if r.csu_match %}text-emerald-600{% else %}text-rose-600 font-bold{% endif %}">
+                      <span class="text-slate-500 font-normal">Your entry:</span> {{ r.manual_csu }}
+                      {% if r.csu_match %}✓{% else %}✗{% endif %}
+                    </div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <!-- RFD Comparison -->
+                <div class="flex items-start justify-between pt-0.5">
+                  <span class="text-[10px] text-slate-400 font-mono mt-0.5">RFD:</span>
+                  <div class="text-right">
+                    <div class="font-semibold text-slate-800">
+                      <span class="text-[9px] text-slate-400 font-mono font-normal inline-block mr-1">Tool:</span>
+                      {{ r.predicted_rfd }}
+                    </div>
+                    {% if r.manual_rfd %}
+                    <div class="text-[10px] font-mono mt-0.5 {% if r.rfd_match %}text-emerald-600{% else %}text-rose-600 font-bold{% endif %}">
+                      <span class="text-slate-500 font-normal">Your entry:</span> {{ r.manual_rfd }}
+                      {% if r.rfd_match %}✓{% else %}✗{% endif %}
+                    </div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="text-[9px] text-slate-400 font-mono text-right pt-0.5">
+                  {% if r.hierarchy_source == 'RCBC_Taxonomy' %}
+                  Matched via: standard rules
+                  {% elif r.hierarchy_source == 'PipeTags' %}
+                  Matched via: pre-tagged remark
+                  {% else %}
+                  Matched via: {{ r.hierarchy_source }}
+                  {% endif %}
+                </div>
+                {% if r.detailed_rfd %}
+                <div class="mt-1 pt-1 border-t border-slate-100 text-[10px] text-slate-600 font-mono">
+                  <span class="text-[9px] uppercase font-bold text-slate-400 block">Detailed RFD:</span>
+                  {{ r.detailed_rfd }}
+                </div>
+                {% endif %}
+              </div>
+            </td>
+
+            <!-- 6. Bank Upload Output (200 Chars) -->
+            <td class="py-3 px-3 align-top">
+              <div class="bg-indigo-50/40 p-2 rounded border border-indigo-100 font-mono text-[11px] text-slate-800 relative group">
+                <div>{{ r.trimmed_statement }}</div>
+                <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>
+                    Len: <span class="font-semibold text-slate-700">{{ r.final_char_count }}</span>/200
+                  </span>
+                  {% if r.final_char_count <= 200 %}
+                  <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200" title="Bank Formula Check">
+                    OKAY NA TO
+                  </span>
+                  {% else %}
+                  <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                    PLS REVISE
+                  </span>
+                  {% endif %}
+                  {% if r.ai_summarized %}
+                  <span class="text-indigo-600 font-bold text-[9px] bg-indigo-50 px-1 rounded border border-indigo-200" title="Summarized by Groq qwen/qwen3.8-27b">AI SUMMARIZED</span>
+                  {% elif r.truncated %}
+                  <span class="text-amber-600 font-bold text-[9px] bg-amber-50 px-1 rounded border border-amber-200">TRIMMED</span>
+                  {% endif %}
+                  <button onclick="copyText('{{ r.trimmed_statement | replace('\'', '\\\'') }}')" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-sans font-medium">
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </td>
+
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if report.rows|length > 1000 %}
+    <div class="p-3 bg-slate-50 border-t border-slate-200 text-center text-xs text-slate-500">
+      Showing first <strong>1,000</strong> of <strong>{{ report.total_rows }}</strong> records to preserve browser performance. Select a narrower date window above to isolate specific days.
+    </div>
+    {% endif %}
+
+    <!-- Empty State for Table filtering -->
+    <div id="noResultsRow" class="hidden p-8 text-center text-slate-500 text-xs">
+      <span class="material-symbols-outlined text-3xl text-slate-300 block mb-1">search_off</span>
+      No remark records matching your filter criteria.
+    </div>
+  </div>
+  {% else %}
+  <!-- Empty Upload Welcome State -->
+  <div class="bg-white rounded-xl border border-slate-200 p-8 sm:p-10 text-center shadow-xs">
+    <div class="max-w-lg mx-auto">
+      <div class="w-16 h-16 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4 border border-indigo-100">
+        <span class="material-symbols-outlined text-3xl">psychology</span>
+      </div>
+      <h2 class="text-lg font-bold text-slate-900">RCBC Remark Intelligence Lab</h2>
+      <p class="text-xs text-slate-500 mt-2 leading-relaxed">
+        Upload the RCBC Field Result workbook (<span class="font-mono text-slate-700">RCBC AL_NEW-CSR_TEMPLATE...</span>) to test tag-stripping, extended Filipino relation detection, CSU/RFD ranking, and 200-char truncation.
+      </p>
+
+      <form id="welcomeUploadForm" action="/remarks-lab/analyze" method="post" enctype="multipart/form-data" class="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200 text-left space-y-4">
+        <div>
+          <div class="flex items-center space-x-1.5 text-xs font-bold text-slate-800 mb-1">
+            <span class="material-symbols-outlined text-indigo-600 text-[18px]">calendar_month</span>
+            <span>Date Range Selector</span>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Highly recommended for 20k+ historical CSR files to load smoothly and prevent computer freezing by analyzing only in-scope records.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[10px] font-mono text-slate-500 mb-0.5" for="welcome_date_from">From Date</label>
+            <input
+              type="date"
+              name="date_from"
+              id="welcome_date_from"
+              value="{{ date_from | default('', true) }}"
+              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+            />
+          </div>
+          <div>
+            <label class="block text-[10px] font-mono text-slate-500 mb-0.5" for="welcome_date_to">To Date</label>
+            <input
+              type="date"
+              name="date_to"
+              id="welcome_date_to"
+              value="{{ date_to | default('', true) }}"
+              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+            />
+          </div>
+        </div>
+
+        <div class="pt-2 flex flex-col items-center space-y-2">
+          <label class="cursor-pointer w-full inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors">
+            <span class="material-symbols-outlined text-lg">upload_file</span>
+            <span>Select FIELD RSULT Workbook &amp; Analyze</span>
+            <input type="file" accept=".xlsx,.xls" class="hidden" onchange="document.getElementById('welcomeUploadForm').submit()" name="workbook" required>
+          </label>
+          <span class="text-[11px] text-slate-400">Targeting sheet: <span class="font-mono font-medium">FIELD RSULT</span></span>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Client-side Interactive Filter & Search Script -->
+<script>
+let currentFilter = 'all';
+
+function setFilter(filterType) {
+  currentFilter = filterType;
+
+  // Update button active states
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.remove('bg-slate-900', 'text-white');
+    btn.classList.add('bg-slate-100', 'text-slate-700');
+  });
+
+  const activeBtn = document.getElementById(`pill-${filterType}`);
+  if (activeBtn) {
+    activeBtn.classList.remove('bg-slate-100', 'text-slate-700');
+    activeBtn.classList.add('bg-slate-900', 'text-white');
+  }
+
+  applyFilters();
+}
+
+function applyFilters() {
+  const query = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('.row-item');
+  let visibleCount = 0;
+
+  rows.forEach(row => {
+    const category = row.getAttribute('data-category') || '';
+    const isDiscrepancy = row.getAttribute('data-discrepancy') === 'true';
+    const isSanitized = row.getAttribute('data-sanitized') === 'true';
+    const searchText = row.getAttribute('data-search') || '';
+
+    let matchesFilter = true;
+    if (currentFilter === 'discrepancy') {
+      matchesFilter = isDiscrepancy;
+    } else if (currentFilter === 'representative') {
+      matchesFilter = (category === 'representative');
+    } else if (currentFilter === 'informant') {
+      matchesFilter = (category === 'informant');
+    } else if (currentFilter === 'sanitized') {
+      matchesFilter = isSanitized;
+    }
+
+    const matchesSearch = (!query || searchText.includes(query));
+
+    if (matchesFilter && matchesSearch) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+
+  const noResults = document.getElementById('noResultsRow');
+  if (noResults) {
+    noResults.classList.toggle('hidden', visibleCount > 0);
+  }
+}
+
+function downloadEvaluatedExcel() {
+  const rows = [];
+  rows.push([
+    "Row Index", "Account Number", "CH Code", "Contact Person", "Contact Relation",
+    "Category Label", "Role", "COLLECTION STATUS UPDATE", "RFD", "DETAILED RFD",
+    "FINAL REMARKS", "Char Count", "char checker"
+  ]);
+
+  document.querySelectorAll("#remarksTableBody tr.row-item").forEach(tr => {
+    if (tr.style.display !== "none") {
+      const idx = tr.querySelector("td:nth-child(1) .font-bold")?.innerText.replace("#", "").trim() || "";
+      const acct = tr.querySelector("td:nth-child(2) .font-semibold")?.innerText.trim() || "";
+      const chEl = tr.querySelector("td:nth-child(2) .text-\\[10px\\]");
+      const ch = chEl ? chEl.innerText.replace("CH: ", "").trim() : "";
+      const person = tr.querySelector("td:nth-child(2) .font-medium")?.innerText.trim() || "";
+      const relation = tr.querySelector("td:nth-child(2) .italic")?.innerText.replace(/\"/g, "").trim() || "";
+      const cat = tr.getAttribute("data-category") || "";
+      const role = tr.querySelector("td:nth-child(3) .font-semibold")?.innerText.trim() || "";
+
+      // CSU & RFD from tool's prediction
+      const csuNodes = tr.querySelectorAll("td:nth-child(5) .font-semibold");
+      const csu = csuNodes.length > 0 ? csuNodes[0].innerText.replace("Tool:", "").trim() : "";
+      const rfd = csuNodes.length > 1 ? csuNodes[1].innerText.replace("Tool:", "").trim() : "";
+
+      const detailedEl = tr.querySelector("td:nth-child(5) .border-t");
+      const detailed = detailedEl ? detailedEl.innerText.replace("DETAILED RFD:", "").trim() : "";
+
+      const remarkEl = tr.querySelector("td:nth-child(6) .font-mono div:first-child");
+      const remark = remarkEl ? remarkEl.innerText.trim() : "";
+      const len = remark.length;
+      const checker = len <= 200 ? "OKAY NA TO" : "PLS REVISE";
+
+      rows.push([idx, acct, ch, person, relation, cat, role, csu, rfd, detailed, remark, len, checker]);
+    }
+  });
+
+  if (rows.length <= 1) {
+    alert("No rows currently visible to export.");
+    return;
+  }
+
+  let csvContent = "\uFEFF" + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "RCBC_FIELD_RESULT_BANK_READY.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

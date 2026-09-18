@@ -1,0 +1,441 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Scaffold the project and `src/mc03` package skeleton": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433059837
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433080995
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433910250
+      }
+    ],
+    "1.2 Implement typed `RuntimeSettings`": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433060208
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433917802
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434116233
+      }
+    ],
+    "1.4 Implement protected storage guards in `storage.py`": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433060366
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433919164
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434117410
+      }
+    ],
+    "1.6 Implement domain models and enums": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433060605
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433919871
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434118046
+      }
+    ],
+    "1.7 Implement Volare DRR ingestion adapter": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433060906
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434128160
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434421327
+      }
+    ],
+    "1.9 Implement Field Result ingestion adapter": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433061092
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434128990
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434422327
+      }
+    ],
+    "1.11 Implement Master File account resolution": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433061246
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434449402
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789435195596
+      }
+    ],
+    "1.13 Implement FastAPI app factory, Screen 1, and `/process` route": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433061397
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789434448960
+      },
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789435196640
+      }
+    ],
+    "2. Checkpoint — Sept 15 deliverables": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433061820
+      }
+    ],
+    "3.1 Implement prohibited-marker sanitizer": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433061947
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789435572144
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436048938
+      }
+    ],
+    "3.3 Implement the provider-neutral extraction gateway": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062080
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789435572369
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436049085
+      }
+    ],
+    "3.4 Implement the remark extraction pipeline": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062211
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436117761
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436668415
+      }
+    ],
+    "3.7 Implement relation classification": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062381
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436972523
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789437269103
+      }
+    ],
+    "3.9 Implement CSU ranking": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062555
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789437280753
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789437625581
+      }
+    ],
+    "3.11 Implement RFD selection hierarchy": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062676
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789437633361
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789438313371
+      }
+    ],
+    "3.13 Implement 200-char remark trimming": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062805
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436677864
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789436963968
+      }
+    ],
+    "3.15 Implement noise/DA exclusion classification": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433062956
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789438320002
+      },
+      {
+        "executionId": "19f386c3-1b61-4b3c-ad83-7ec3c4e0da84",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789438800130
+      }
+    ],
+    "4. Checkpoint — Sept 16 deliverables": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433063258
+      }
+    ],
+    "5.1 Implement the in-memory run store": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433063382
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441489420
+      }
+    ],
+    "5.3 Implement the run orchestrator and disposition conservation": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433063559
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441490641
+      }
+    ],
+    "5.5 Wire `/process` to the orchestrator and redirect": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433063815
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441489963
+      }
+    ],
+    "5.6 Implement the exception review queue screens": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433063973
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441490829
+      }
+    ],
+    "5.8 Implement fixed-template workbook rendering": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433064148
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441491036
+      }
+    ],
+    "5.10 Implement the AES-256 archive service": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433064312
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441491334
+      }
+    ],
+    "5.13 Implement the export and download center": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433064488
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441491574
+      }
+    ],
+    "6. Checkpoint — Sept 17 deliverables": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433064778
+      }
+    ],
+    "7.1 Implement an end-to-end pipeline test with historical sample data": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433064954
+      }
+    ],
+    "7.3 Final quality gate": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433065184
+      }
+    ],
+    "8. Final checkpoint — Sept 18 deliverables": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789433065386
+      }
+    ],
+    "1. Sprint Day Sept 15 — Scaffolding, configuration, ingestion, and account resolution": [
+      {
+        "executionId": "ec0a14d7-855a-41d1-9388-aeb702b147e6",
+        "chatSessionId": "sess_86c5adf0-da03-4f53-86d7-0e0af28d7579",
+        "timestamp": 1789435196719
+      }
+    ],
+    "3. Sprint Day Sept 16 — Sanitization, extraction, and the RCBC hierarchy engine": [
+      {
+        "executionId": "144ef7dc-1ad8-4674-a73e-533de6f78f35",
+        "chatSessionId": "sess_1e30bee0-e853-4424-aca4-86076494ae4a",
+        "timestamp": 1789435383816
+      }
+    ],
+    "5. Sprint Day Sept 17 — Orchestration, run store, exception queue, rendering, and archive": [
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789440144472
+      },
+      {
+        "executionId": "cf2c1ecd-3d01-4cb8-a9b1-8281d0b39bd6",
+        "chatSessionId": "sess_8c543c99-d202-4ba5-9f15-d09b821fbdc9",
+        "timestamp": 1789441478712
+      }
+    ],
+    "7. Sprint Day Sept 18 — End-to-end dry run and deliverable verification": [
+      {
+        "executionId": "5ad6d20b-51b5-488d-82e8-6a1611cfacbb",
+        "chatSessionId": "sess_3e2614fc-479c-4d76-a96a-0a4014054706",
+        "timestamp": 1789441825281
+      },
+      {
+        "executionId": "5ad6d20b-51b5-488d-82e8-6a1611cfacbb",
+        "chatSessionId": "sess_3e2614fc-479c-4d76-a96a-0a4014054706",
+        "timestamp": 1789442106831
+      }
+    ]
+  }
+}

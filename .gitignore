@@ -1,0 +1,109 @@
+# ==============================================================================
+# Environment, Credentials & Secrets
+# ==============================================================================
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*credentials*.json
+service_account*.json
+secrets.json
+token.json
+.secrets/
+
+# ==============================================================================
+# Scratch, Ad-hoc Scripts & Data Dumps (Contains sensitive bank loan remarks / PII)
+# ==============================================================================
+scratch/
+var/
+
+# Database files & SQLite journals
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db3
+
+# Runtime locks (do not ignore uv.lock)
+generation.lock
+*.lock.file
+*.pid
+
+# Generated report archives & exports
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# ==============================================================================
+# Python & Virtual Environments
+# ==============================================================================
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+parts/
+develop-eggs/
+.installed.cfg
+
+# ==============================================================================
+# Testing, Coverage & Type Checkers
+# ==============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# ==============================================================================
+# Operating System & File System Artifacts
+# ==============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==============================================================================
+# IDEs, Editors & Backup Files
+# ==============================================================================
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+*.temp
+
+# ==============================================================================
+# Logs
+# ==============================================================================
+*.log
+logs/

@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% set active_step = 'review' %}
+{% block title %}Exception Review Queue — MC03 DA Portal{% endblock %}
+
+{% block content %}
+<section id="tab-review">
+  {% if error %}
+  <div role="alert" class="p-6 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-sm shadow-xs mb-6">
+    <div class="flex items-center space-x-2 font-bold text-base mb-1">
+      <span class="material-symbols-outlined text-rose-600">error</span>
+      <span>Run Not Found or Error Occurred</span>
+    </div>
+    <p class="font-mono text-xs text-rose-800">{{ error }}</p>
+    <div class="mt-4">
+      <a href="/" class="inline-flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-900 text-xs font-semibold hover:bg-rose-100 transition">
+        <span class="material-symbols-outlined text-[16px]">arrow_back</span>
+        <span>Return to Setup</span>
+      </a>
+    </div>
+  </div>
+  {% else %}
+
+  <!-- Banner Stats -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+    <!-- Total Ingested -->
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+      <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Total Ingested</span>
+      <div class="mt-1 flex items-baseline justify-between">
+        <span class="text-2xl font-bold font-mono text-slate-900">42,150</span>
+        <span class="text-xs font-mono text-slate-400">100% Window</span>
+      </div>
+      <div class="w-full bg-slate-100 h-1.5 rounded-full mt-2.5">
+        <div class="bg-slate-700 h-full w-full rounded-full"></div>
+      </div>
+    </div>
+
+    <!-- Clean & Auto-Resolved -->
+    <div class="bg-emerald-50/40 rounded-xl border border-emerald-200/80 p-4 shadow-xs">
+      <span class="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider block">Clean &amp; Auto-Resolved</span>
+      <div class="mt-1 flex items-baseline justify-between">
+        <span class="text-2xl font-bold font-mono text-emerald-700" id="stat-clean">40,800</span>
+        <span class="text-xs font-mono text-emerald-600 font-medium">96.8% Auto-Pass</span>
+      </div>
+      <div class="w-full bg-emerald-100 h-1.5 rounded-full mt-2.5">
+        <div class="bg-emerald-500 h-full w-full rounded-full"></div>
+      </div>
+    </div>
+
+    <!-- Excluded System Noise -->
+    <div class="bg-slate-50 rounded-xl border border-slate-200 p-4 shadow-xs">
+      <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">Excluded System Noise</span>
+      <div class="mt-1 flex items-baseline justify-between">
+        <span class="text-2xl font-bold font-mono text-slate-600" id="stat-excluded">1,345</span>
+        <span class="text-xs font-mono text-slate-400">Rules Applied</span>
+      </div>
+      <div class="w-full bg-slate-200 h-1.5 rounded-full mt-2.5">
+        <div class="bg-slate-400 h-full w-full rounded-full"></div>
+      </div>
+    </div>
+
+    <!-- Flagged Exceptions -->
+    <div class="bg-amber-50/60 rounded-xl border border-amber-300 p-4 shadow-xs">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold text-amber-900 uppercase tracking-wider">Flagged Exceptions</span>
+        <span class="text-[10px] font-mono font-bold bg-amber-200/80 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
+          Action Required
+        </span>
+      </div>
+      <div class="mt-1 flex items-baseline justify-between">
+        <span class="text-2xl font-bold font-mono text-amber-700" id="stat-flagged">{{ unresolved }}</span>
+        <span class="text-xs font-mono text-amber-800 font-medium">Unresolved Exceptions: <strong>{{ unresolved }}</strong></span>
+      </div>
+      <div class="w-full bg-amber-200 h-1.5 rounded-full mt-2.5">
+        <div class="bg-amber-600 h-full w-full rounded-full"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Exception Triage Card -->
+  <div class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-6">
+    <!-- Filter / Note Bar -->
+    <div class="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50/70 text-xs">
+      <div class="flex items-center space-x-2 text-slate-700 font-medium">
+        <span class="w-2 h-2 rounded-full {% if unresolved > 0 %}bg-amber-500{% else %}bg-emerald-500{% endif %}"></span>
+        <span>
+          Run: <code class="font-mono text-indigo-700 font-bold">{{ run_id }}</code> &bull;
+          Displaying <strong class="font-mono">{{ unresolved }}</strong> flagged exception{% if unresolved != 1 %}s{% endif %} requiring operator resolution
+        </span>
+      </div>
+      <div class="font-mono text-[11px] text-slate-500">
+        Sanitized Rule: Tags (BCAL, L3, INB, OBD, SRC) Stripped
+      </div>
+    </div>
+
+    {% if rows %}
+    <!-- Exception Triage Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs text-slate-700" id="review-table">
+        <thead class="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+          <tr>
+            <th class="py-3 px-4 w-40 font-mono" scope="col">CH Code / Resolved Acct</th>
+            <th class="py-3 px-4 w-48" scope="col">Contact &amp; Relation Tag</th>
+            <th class="py-3 px-4 min-w-[280px]" scope="col">Sanitized Remark</th>
+            <th class="py-3 px-3 w-36 text-center font-mono" scope="col">Length Counter</th>
+            <th class="py-3 px-4 min-w-[220px]" scope="col">Collection Status Update</th>
+            <th class="py-3 px-4 min-w-[170px]" scope="col">Reason for Default (RFD)</th>
+            <th class="py-3 px-4 w-32 text-center" scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 font-normal">
+          {% for item in rows %}
+          <tr class="hover:bg-slate-50/80 transition review-row" data-row-id="{{ item.index }}" id="row-{{ item.index }}">
+            <form action="/review/{{ run_id }}/decision" method="post">
+              <input type="hidden" name="row_id" value="{{ item.index }}" />
+
+              <!-- CH Code / Acct -->
+              <td class="py-3 px-4 font-mono font-medium text-indigo-900 whitespace-nowrap">
+                <div class="font-bold">{{ item.row.ch_code or "Unmapped" }}</div>
+                <div class="text-[10px] text-slate-400">Acct: {{ item.account_display }}</div>
+              </td>
+
+              <!-- Contact & Relation -->
+              <td class="py-3 px-4">
+                <div class="font-semibold text-slate-900">{{ item.row.contact_person or "Not identified" }}</div>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 mt-1">
+                  {{ item.relation_display }}
+                </span>
+              </td>
+
+              <!-- Sanitized Remark -->
+              <td class="py-3 px-4">
+                <div class="relative group bg-slate-50 p-2.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px] leading-relaxed">
+                  <span id="remark-{{ item.index }}">{{ item.remark }}</span>
+                  <button
+                    class="absolute top-1.5 right-1.5 bg-white hover:bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded text-[10px] text-slate-600 transition shadow-2xs font-sans cursor-pointer"
+                    onclick="copyText(document.getElementById('remark-{{ item.index }}').innerText)"
+                    type="button"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </td>
+
+              <!-- Length Counter -->
+              <td class="py-3 px-3 text-center">
+                {% if item.length > 200 %}
+                <span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                  <span class="length-counter">{{ item.length }}</span>/200 chars - Truncation Needed
+                </span>
+                {% else %}
+                <span class="inline-block px-2 py-1 rounded font-mono text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-300">
+                  <span class="length-counter">{{ item.length }}</span>/200 chars
+                </span>
+                {% endif %}
+              </td>
+
+              <!-- CSU -->
+              <td class="py-3 px-4">
+                <select
+                  id="csu-{{ item.index }}"
+                  name="csu_rank"
+                  class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="3"{% if item.row.csu_rank == 3 %} selected{% endif %}>CLIENT POSITIVE/UNIT POSITIVE (CP+UP)</option>
+                  <option value="2"{% if item.row.csu_rank == 2 %} selected{% endif %}>CLIENT POSITIVE/UNIT NEGATIVE (CP+UN)</option>
+                  <option value="1"{% if item.row.csu_rank == 1 or item.row.csu_rank == 0 %} selected{% endif %}>CLIENT NEGATIVE/UNIT NEGATIVE (CN)</option>
+                </select>
+              </td>
+
+              <!-- RFD -->
+              <td class="py-3 px-4">
+                <select
+                  id="rfd-{{ item.index }}"
+                  name="rfd"
+                  class="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-xs text-slate-800 focus:ring-1 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="">-- Select RFD --</option>
+                  {% for option in ["Medical", "Diversion of Funds", "Delayed Salary", "Delayed Collection", "Business Slowdown", "Third-Party User", "Borrower Refused", "Representative Refused", "No Client or Representative Reached", "Moved Out"] %}
+                  <option value="{{ option }}"{% if item.row.selected_rfd == option %} selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </td>
+
+              <!-- Actions -->
+              <td class="py-3 px-4 text-center">
+                <div class="flex items-center justify-center space-x-1">
+                  <button
+                    type="submit"
+                    name="action"
+                    value="approve"
+                    class="p-1.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition border border-emerald-300 shadow-2xs cursor-pointer"
+                    title="Approve"
+                  >
+                    <span class="material-symbols-outlined text-[18px]">check</span>
+                  </button>
+                  <button
+                    type="submit"
+                    name="action"
+                    value="exclude"
+                    class="p-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition border border-rose-300 shadow-2xs cursor-pointer"
+                    title="Exclude"
+                  >
+                    <span class="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                  <button
+                    type="submit"
+                    name="action"
+                    value="edit"
+                    class="p-1.5 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white transition border border-indigo-300 shadow-2xs cursor-pointer"
+                    title="Save Edit"
+                  >
+                    <span class="material-symbols-outlined text-[18px]">save</span>
+                  </button>
+                </div>
+              </td>
+            </form>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <!-- All Reviewed State -->
+    <div class="p-8 text-center bg-emerald-50/40 border-t border-emerald-100" id="all-reviewed-state">
+      <span class="material-symbols-outlined text-emerald-600 text-[36px]">verified</span>
+      <h4 class="text-sm font-bold text-slate-900 mt-1">All Flagged Exceptions Triaged!</h4>
+      <p class="text-xs text-slate-500 mt-0.5 mb-4">No unresolved exceptions remain for this run. Continue to the Export &amp; Download Center.</p>
+      <a href="/export/{{ run_id }}" class="inline-flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition">
+        <span>Proceed to Export &amp; Download</span>
+        <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+      </a>
+    </div>
+    {% endif %}
+
+    <!-- Bottom Action Bar -->
+    <div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center space-x-2">
+        <span class="text-xs text-slate-500 font-mono">Run ID: <code class="text-slate-800">{{ run_id }}</code></span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <a href="/" class="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-medium transition shadow-2xs">
+          Back to Setup
+        </a>
+        <a href="/export/{{ run_id }}" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition shadow-xs flex items-center space-x-1.5">
+          <span>Proceed to Export &amp; Download</span>
+          <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

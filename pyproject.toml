@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools==75.6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mc03-bank-report-automation"
+version = "0.1.0"
+description = "MC03 Bank Report Automation on-premises service"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "alembic==1.14.0",
+    "fastapi==0.115.6",
+    "httpx==0.28.1",
+    "jinja2==3.1.6",
+    "openpyxl==3.1.5",
+    "pandas==3.0.5",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.7.1",
+    "python-multipart==0.0.32",
+    "pyyaml==6.0.2",
+    "pyzipper==0.3.6",
+    "sqlalchemy==2.0.36",
+    "uvicorn==0.34.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "hypothesis==6.122.3",
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+]
+dev = [
+    "mc03-bank-report-automation[test]",
+    "mypy==1.14.1",
+    "ruff==0.8.6",
+    "types-pyyaml==6.0.12.20241230",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+
+# pandas ships no type stubs compatible with the pinned runtime version, and the
+# tabular processing is confined to the ingestion adapters. Ignore missing pandas
+# imports so strict checking still covers the rest of the codebase.
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
+
+# openpyxl ships no type stubs compatible with the pinned runtime version. It is
+# used inside the web upload validator and the workbook renderer only; ignore
+# missing imports so strict checking still covers the rest of the codebase.
+[[tool.mypy.overrides]]
+module = ["openpyxl", "openpyxl.*"]
+ignore_missing_imports = true

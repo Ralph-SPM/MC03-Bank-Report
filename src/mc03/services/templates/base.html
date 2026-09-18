@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}MC03 DA Portal — Bank Collections Report Automation{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f8fafc; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col font-sans">
+  <!-- 1. Header Bar (Minimalist, Zero-friction, Single-operator) -->
+  <header class="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-13 py-2.5 flex items-center justify-between">
+      <!-- Left: Brand mark & Campaign tag pill -->
+      <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-2">
+          <div class="w-7 h-7 rounded bg-indigo-600 flex items-center justify-center font-mono font-bold text-white text-xs shadow-inner">
+            M3
+          </div>
+          <span class="font-bold tracking-tight text-slate-100 text-sm">MC03 DA Portal</span>
+        </div>
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-indigo-300 border border-slate-700/80 font-mono">
+          RCBC Auto Loan (Active)
+        </span>
+      </div>
+      <!-- Right: Minimalist system indicators -->
+      <div class="flex items-center space-x-3 text-xs font-mono">
+        <div class="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span>Status: <strong class="text-emerald-300 font-medium">Ready</strong></span>
+        </div>
+        <div class="hidden md:flex items-center px-2 py-1 rounded bg-slate-800/60 border border-slate-700/60 text-[11px] text-slate-400">
+          Engine: Ready
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2. Step / Tab Navigation -->
+  {% block nav_tabs %}
+  <nav class="bg-white border-b border-slate-200 shadow-xs sticky top-[49px] z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between py-2">
+        <div class="flex space-x-2 sm:space-x-4">
+          <!-- Step 1 -->
+          <a href="/" class="group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'setup' or not active_step %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+            <span class="w-5 h-5 rounded-full {% if active_step == 'setup' or not active_step %}bg-indigo-600 text-white{% else %}bg-slate-200 text-slate-700 group-hover:bg-slate-300{% endif %} font-mono text-[11px] flex items-center justify-center font-bold">1</span>
+            <span>1. Run Setup &amp; Sources</span>
+          </a>
+          <!-- Step 2 -->
+          {% if run_id %}
+          <a href="/review/{{ run_id }}" class="group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'review' %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+            <span class="w-5 h-5 rounded-full {% if active_step == 'review' %}bg-indigo-600 text-white{% else %}bg-slate-200 text-slate-700 group-hover:bg-slate-300{% endif %} font-mono text-[11px] flex items-center justify-center font-bold">2</span>
+            <span>2. Exception Review</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-mono {% if unresolved is defined and unresolved > 0 %}bg-amber-100 text-amber-800 border border-amber-300{% else %}bg-emerald-100 text-emerald-800 border border-emerald-300{% endif %} font-semibold">
+              {{ unresolved | default(0) }} Flagged
+            </span>
+          </a>
+          <!-- Step 3 -->
+          <a href="/export/{{ run_id }}" class="group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'export' %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+            <span class="w-5 h-5 rounded-full {% if active_step == 'export' %}bg-indigo-600 text-white{% else %}bg-slate-200 text-slate-700 group-hover:bg-slate-300{% endif %} font-mono text-[11px] flex items-center justify-center font-bold">3</span>
+            <span>3. Export &amp; Download</span>
+          </a>
+          {% else %}
+          <div class="group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed opacity-60">
+            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 font-mono text-[11px] flex items-center justify-center font-bold">2</span>
+            <span>2. Exception Review</span>
+          </div>
+          <div class="group flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium text-slate-400 cursor-not-allowed opacity-60">
+            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 font-mono text-[11px] flex items-center justify-center font-bold">3</span>
+            <span>3. Export &amp; Download</span>
+          </div>
+          {% endif %}
+
+          <div class="h-5 w-px bg-slate-300 my-auto mx-1"></div>
+
+          <!-- Remarks Lab Tab -->
+          <a href="/remarks-lab" class="group flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'remarks_lab' %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+            <span class="material-symbols-outlined text-[16px] text-indigo-600">psychology</span>
+            <span>Remark Lab &amp; Benchmark</span>
+          </a>
+        </div>
+        <div class="hidden lg:flex items-center space-x-2 text-xs text-slate-500 font-mono">
+          <span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          <span>Zero-friction Ingest Mode</span>
+        </div>
+      </div>
+    </div>
+  </nav>
+  {% endblock %}
+
+  <!-- Main Work Area -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-4 right-4 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-lg shadow-lg border border-slate-800 transform transition duration-200 pointer-events-none z-50 flex items-center space-x-2 translate-y-12 opacity-0">
+    <span class="material-symbols-outlined text-emerald-400 text-[18px]">check_circle</span>
+    <span id="toast-message">Action completed</span>
+  </div>
+
+  <script>
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-message');
+      if (!toast || !toastMsg) return;
+      toastMsg.innerText = message;
+      toast.classList.remove('translate-y-12', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-12', 'opacity-0');
+      }, 2400);
+    }
+
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Copied to clipboard');
+      }).catch(() => {
+        showToast('Failed to copy');
+      });
+    }
+  </script>
+</body>
+</html>
