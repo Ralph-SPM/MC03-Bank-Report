@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from mc03.services.remarks_lab.trimmer import (
-    trim_and_format,
-    strip_preamble,
+    PREAMBLE_PATTERNS,
+    TrimmedRemark,
     deduplicate_phrases,
     fallback_clause_truncate,
     llm_trim_remark,
-    TrimmedRemark,
-    PREAMBLE_PATTERNS,
+    strip_preamble,
+    trim_and_format,
 )
 
 # Backward-compatible alias

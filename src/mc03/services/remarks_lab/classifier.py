@@ -20,12 +20,12 @@ class ClassifiedRelation:
 
 # Tier 1: Borrower / Client Direct Contact Patterns & Whitelist
 LAB_BORROWER_REMARK_PATTERNS = [
-    r"\b(?:client|borrower|cardholder|principal)\s+(?:ptp|promised?|refused?|stated?|claims?|declared?|advised?|declined?|agreed?|requested?|coordinated?|present|took\s+transfer\s+call)\b",
-    r"\bspoke\s+(?:with|to)\s+(?:client|borrower|cardholder|principal)\b",
-    r"\btalked\s+to\s+(?:client|borrower|cardholder|principal)\b",
-    r"\b(?:direct\s+contact\s+with|contact\s+made\s+with|actual\s+contact\s+with)\s+(?:client|borrower|cardholder|principal)\b",
-    r"\bper\s+(?:client|borrower|cardholder|principal)(?!['’]s)\b",
-    r"\b(?:client|borrower|cardholder)\s+(?:himself|herself)\b",
+    r"\b(?:client|borrower|cardholder|principal|ch)\s+(?:ptp|promised?|refused?|stated?|claims?|declared?|advised?|declined?|agreed?|requested?|coordinated?|present|took\s+transfer\s+call)\b",
+    r"\bspoke\s+(?:with|to)\s+(?:client|borrower|cardholder|principal|ch)\b",
+    r"\btalked\s+to\s+(?:client|borrower|cardholder|principal|ch)\b",
+    r"\b(?:direct\s+contact\s+with|contact\s+made\s+with|actual\s+contact\s+with)\s+(?:client|borrower|cardholder|principal|ch)\b",
+    r"\bper\s+(?:client|borrower|cardholder|principal|ch)(?!['’]s)\b",
+    r"\b(?:client|borrower|cardholder|ch)\s+(?:himself|herself)\b",
 ]
 
 LAB_CARDHOLDER_KEYWORDS = [
@@ -75,41 +75,123 @@ LAB_INFORMANT_KEYWORDS = [
 ]
 
 
+NO_CONTACT_PATTERNS = [
+    r"\b(?:house\s+(?:is\s+)?closed|gate\s+(?:is\s+)?locked|unoccupied|vacant(?:\s+lot)?|empty\s+lot|nobody\s+around|no\s+one\s+around|no\s+person\s+around|unlocated|uncontacted|not\s+around|did\s+not\s+answer|refused\s+to\s+open)\b"
+]
+
+
 def clean_preamble(text: str) -> str:
     """Safely strip agency prefixes without eating substantive remark text."""
-    rem_body = re.sub(
-        r"^ECA[\s_]+AUTO_[A-Za-z0-9._\s]+?_\d{1,2}/\d{1,2}/\d{2,4}\s*[-:]?\s*",
-        "",
-        str(text).strip(),
-        flags=re.IGNORECASE,
-    ).strip()
-    return rem_body if rem_body else str(text).strip()
+    from mc03.services.remarks_lab.trimmer import ECA_HEADER_PATTERN
+    rem_text = str(text).strip() if text is not None else ""
+    m = ECA_HEADER_PATTERN.match(rem_text)
+    if m:
+        rem_text = rem_text[len(m.group(1)):].strip()
+    return rem_text
+
+
+def _detect_remark_relation(stmt_lower: str) -> Optional[tuple[str, str, str]]:
+    """
+    Extract relation signal from substantive remark text.
+    Returns (category_label, normalized_role, keyword) or None.
+    """
+    if not stmt_lower or not stmt_lower.strip():
+        return None
+
+    # 1. Direct borrower contact
+    for pat in LAB_BORROWER_REMARK_PATTERNS:
+        m = re.search(pat, stmt_lower)
+        if m:
+            # Guardrail: check if remark actually said "per client's wife", "as per ch wife", "ch father", etc.
+            rel_m = re.search(r"\b(?:per\s+|as\s+per\s+)?(?:client|borrower|cardholder|principal|ch)(?:['’]s|\s+)\s*([a-z\-]+)\b", stmt_lower)
+            if rel_m:
+                cand = rel_m.group(1).lower()
+                for t in LAB_REPRESENTATIVE_KEYWORDS:
+                    if cand == t or cand.startswith(t):
+                        return ("Representative", t.title(), rel_m.group(0))
+                for t in LAB_INFORMANT_KEYWORDS:
+                    if cand == t or cand.startswith(t):
+                        return ("Informant", t.title(), rel_m.group(0))
+            return ("Borrower", "Borrower (Self)", m.group(0))
+
+    # 2. Informant explicit speaker pattern (e.g. "Per neighbor, client's sister...")
+    inf_speaker_pat = (
+        r"\b(?:per|according to|as per|spoke\s+(?:with|to)|talked\s+to|inquired\s+with|interviewed|talk\s+to)\s+"
+        r"(?:an?\s+|the\s+)?([a-z\s\-]+?)\b"
+    )
+    for m in re.finditer(inf_speaker_pat, stmt_lower):
+        cand = m.group(1).strip().lower()
+        for t in LAB_INFORMANT_KEYWORDS:
+            if t == cand or cand.startswith(t) or cand.endswith(t):
+                return ("Informant", t.title(), t)
+
+    # 3. Informant keywords in remark
+    for t in LAB_INFORMANT_KEYWORDS:
+        if re.search(r"\b" + re.escape(t) + r"\b", stmt_lower):
+            return ("Informant", t.title(), t)
+
+    # 4. Representative keywords in remark
+    for t in LAB_REPRESENTATIVE_KEYWORDS:
+        if re.search(r"\b" + re.escape(t) + r"\b", stmt_lower):
+            return ("Representative", t.title(), t)
+
+    # 5. Explicit no-contact / unreached cues in remark
+    for pat in NO_CONTACT_PATTERNS:
+        if re.search(pat, stmt_lower):
+            return ("none reached", "none reached", "no contact reached")
+
+    return None
+
+
+def _detect_meta_relation(meta_text: str, c_relation: str) -> Optional[tuple[str, str, str]]:
+    """
+    Extract relation signal from workbook metadata (contact relation, contact person, TALK TO, 3RD PARTY).
+    Returns (category_label, normalized_role, keyword) or None.
+    """
+    if not meta_text or not meta_text.strip():
+        return None
+
+    # Check informant in metadata
+    for t in LAB_INFORMANT_KEYWORDS:
+        if re.search(r"\b" + re.escape(t) + r"\b", meta_text):
+            return ("Informant", t.title(), t)
+
+    # Check representative in metadata
+    for t in LAB_REPRESENTATIVE_KEYWORDS:
+        if re.search(r"\b" + re.escape(t) + r"\b", meta_text):
+            return ("Representative", t.title(), t)
+
+    # Check cardholder / borrower in metadata
+    for kw in LAB_CARDHOLDER_KEYWORDS:
+        if re.search(r"\b" + re.escape(kw) + r"\b", meta_text):
+            return ("Borrower", "Borrower (Self)", kw)
+
+    # Domain classifier fallback on c_relation
+    if c_relation:
+        core_res = classify_relation_result(c_relation)
+        if core_res.relation == Relation.REPRESENTATIVE:
+            return ("Representative", "Representative", core_res.matched_keyword or c_relation)
+        elif core_res.relation == Relation.INFORMANT:
+            return ("Informant", "Informant", core_res.matched_keyword or c_relation)
+
+    return None
 
 
 def classify_contact(
     contact_person: str = "",
     contact_relation: str = "",
-    statement: str = "",
+    statement: Optional[str] = None,
     extra_fields: Optional[Mapping[str, Any]] = None,
 ) -> ClassifiedRelation:
     """
-    3-tier classifier run on remark text (and supporting metadata), strictly prioritized:
-      1. Borrower = client themself was spoken to directly.
-      2. Representative = spouse, parent, child, sibling, aunt (tita), uncle (tito),
-         nephew/niece, or ANY in-law (blood relative or in-law).
-      3. Informant = apartment/building guard, neighbor, barangay official, colleague, staff.
-         Informants can NEVER be classified as Representative.
-      4. If none detected -> Relation Class = 'none reached' (never 'Unknown').
-
-    Special case: ECA-handled accounts determine who was spoken to from the rest of the remark
-    and metadata rather than defaulting to 'no contact reached'.
+    Classifies relation based entirely on the final remark text.
+    The remark text is the SOLE source of truth for who was contacted:
+      - If remark text contains a person/relation cue: classify and cross-check with metadata.
+      - If remark text has NO person cue or is unreached: returns category 'none', role 'none'.
+      - Metadata is only used as a fallback if statement was explicitly omitted (statement is None).
     """
     c_person = str(contact_person).strip() if contact_person is not None else ""
     c_relation = str(contact_relation).strip() if contact_relation is not None else ""
-    raw_stmt = str(statement).strip() if statement is not None else ""
-
-    stmt_clean = clean_preamble(raw_stmt)
-    stmt_lower = stmt_clean.lower()
 
     # Gather auxiliary metadata (e.g. TALK TO, 3RD PARTY LIST)
     meta_parts = [c_relation, c_person]
@@ -120,149 +202,77 @@ def classify_contact(
                 meta_parts.append(val)
     meta_text = " ".join(meta_parts).strip().lower()
 
-    # ---------------------------------------------------------
-    # TIER 1: Borrower (Client directly spoken to)
-    # ---------------------------------------------------------
-    is_borrower = False
-    matched_borrower_kw = None
+    # If statement argument was explicitly provided, remark is the sole source of truth
+    if statement is not None:
+        raw_stmt = str(statement).strip()
+        stmt_clean = clean_preamble(raw_stmt)
+        stmt_lower = stmt_clean.lower()
+        remark_sig = _detect_remark_relation(stmt_lower)
+        meta_sig = _detect_meta_relation(meta_text, c_relation)
 
-    # Check direct patterns in remark statement
-    for pat in LAB_BORROWER_REMARK_PATTERNS:
-        m = re.search(pat, stmt_lower)
-        if m:
-            is_borrower = True
-            matched_borrower_kw = m.group(0)
-            break
-
-    # Check metadata indicating direct client contact if remark doesn't say otherwise
-    if not is_borrower:
-        for kw in LAB_CARDHOLDER_KEYWORDS:
-            if re.search(r"\b" + re.escape(kw) + r"\b", meta_text):
-                # Verify statement doesn't indicate speaking to a representative or informant instead
-                has_rep_kw = any(re.search(r"\b" + re.escape(t) + r"\b", stmt_lower) for t in LAB_REPRESENTATIVE_KEYWORDS[:20])
-                if not has_rep_kw:
-                    is_borrower = True
-                    matched_borrower_kw = kw
-                    break
-
-    if is_borrower:
-        # Guardrail: check if remark actually said "per client's wife", "client's mother", etc.
-        rep_match = re.search(r"\b(?:per\s+client['’]s|client['’]s)\s+([a-z\-]+)\b", stmt_lower)
-        if rep_match:
-            candidate = rep_match.group(1).lower()
-            if any(candidate.startswith(t) or candidate == t for t in LAB_REPRESENTATIVE_KEYWORDS):
-                return ClassifiedRelation(
-                    relation=Relation.REPRESENTATIVE,
-                    category_label="Representative",
-                    normalized_role=candidate.title(),
-                    matched_keyword=rep_match.group(0),
-                    guardrail_applied=False,
+        if remark_sig is not None:
+            rem_cat, rem_role, rem_kw = remark_sig
+            if rem_cat == "none reached":
+                category_label = "none"
+                normalized_role = "none"
+                matched_keyword = None
+            elif meta_sig is not None:
+                meta_cat, meta_role, meta_kw = meta_sig
+                # Check agreement
+                is_agree = (
+                    rem_cat == meta_cat
+                    and (
+                        rem_cat == "Borrower"
+                        or rem_role.lower() == meta_role.lower()
+                        or rem_kw.lower() in meta_kw.lower()
+                        or meta_kw.lower() in rem_kw.lower()
+                    )
                 )
-        return ClassifiedRelation(
-            relation=Relation.UNKNOWN,
-            category_label="Borrower",
-            normalized_role="Borrower (Self)",
-            matched_keyword=matched_borrower_kw,
-            guardrail_applied=False,
-        )
+                if is_agree:
+                    category_label = rem_cat
+                    normalized_role = rem_role
+                    matched_keyword = f"remark:{rem_kw}; also listed in contact field"
+                else:
+                    # Conflict: Remark text is the primary source of truth and wins
+                    category_label = rem_cat
+                    normalized_role = rem_role
+                    matched_keyword = f"remark:{rem_kw}; contact field listed ({meta_kw})"
+            else:
+                category_label = rem_cat
+                normalized_role = rem_role
+                matched_keyword = f"remark:{rem_kw}"
+        else:
+            # Remark doesn't mention anyone -> do not infer from metadata, just say 'none'
+            category_label = "none"
+            normalized_role = "none"
+            matched_keyword = None
+    else:
+        # statement was omitted (None): standalone metadata evaluation fallback
+        meta_sig = _detect_meta_relation(meta_text, c_relation)
+        if meta_sig is not None:
+            meta_cat, meta_role, meta_kw = meta_sig
+            category_label = meta_cat
+            normalized_role = meta_role
+            matched_keyword = f"meta:{meta_kw}"
+        else:
+            category_label = "none"
+            normalized_role = "none"
+            matched_keyword = None
 
-    # Informants can NEVER be classified as Representative.
-    # 1. Metadata check for informant
-    for t in LAB_INFORMANT_KEYWORDS:
-        if re.search(r"\b" + re.escape(t) + r"\b", meta_text):
-            return ClassifiedRelation(
-                relation=Relation.INFORMANT,
-                category_label="Informant",
-                normalized_role=t.title(),
-                matched_keyword=f"meta:{t}",
-                guardrail_applied=True,
-            )
+    if category_label == "Representative":
+        rel = Relation.REPRESENTATIVE
+        guardrail = False
+    elif category_label == "Informant":
+        rel = Relation.INFORMANT
+        guardrail = True
+    else:
+        rel = Relation.UNKNOWN
+        guardrail = False
 
-    # 2. Explicit informant speaker in statement (e.g. "Per neighbor, client's sister...")
-    inf_speaker_pat = r"\b(?:per|according to|as per|spoke\s+(?:with|to)|talked\s+to|inquired\s+with)\s+(?:an?\s+|the\s+)?(?:informant|neighbor|kapitbahay|kapit-bahay|guard|security|sekyu|sg|caretaker|tenant|renter|staff|store\s+staff|barangay|tanod|kagawad|colleague|landlord|landlady|hoa)\b"
-    inf_match = re.search(inf_speaker_pat, stmt_lower)
-    if inf_match:
-        return ClassifiedRelation(
-            relation=Relation.INFORMANT,
-            category_label="Informant",
-            normalized_role="Informant",
-            matched_keyword=f"speaker:{inf_match.group(0)}",
-            guardrail_applied=True,
-        )
-
-    # ---------------------------------------------------------
-    # TIER 2: Representative (Blood relative OR ANY in-law)
-    # ---------------------------------------------------------
-    for t in LAB_REPRESENTATIVE_KEYWORDS:
-        if re.search(r"\b" + re.escape(t) + r"\b", stmt_lower):
-            return ClassifiedRelation(
-                relation=Relation.REPRESENTATIVE,
-                category_label="Representative",
-                normalized_role=t.title(),
-                matched_keyword=f"remark:{t}",
-                guardrail_applied=False,
-            )
-
-    for t in LAB_REPRESENTATIVE_KEYWORDS:
-        if re.search(r"\b" + re.escape(t) + r"\b", meta_text):
-            return ClassifiedRelation(
-                relation=Relation.REPRESENTATIVE,
-                category_label="Representative",
-                normalized_role=t.title(),
-                matched_keyword=f"meta:{t}",
-                guardrail_applied=False,
-            )
-
-    # ---------------------------------------------------------
-    # TIER 3: Informant (Guard, neighbor, barangay official, colleague, staff)
-    # Informants can NEVER be classified as Representative
-    # ---------------------------------------------------------
-    for t in LAB_INFORMANT_KEYWORDS:
-        if re.search(r"\b" + re.escape(t) + r"\b", stmt_lower):
-            return ClassifiedRelation(
-                relation=Relation.INFORMANT,
-                category_label="Informant",
-                normalized_role=t.title(),
-                matched_keyword=f"remark:{t}",
-                guardrail_applied=True,
-            )
-
-    for t in LAB_INFORMANT_KEYWORDS:
-        if re.search(r"\b" + re.escape(t) + r"\b", meta_text):
-            return ClassifiedRelation(
-                relation=Relation.INFORMANT,
-                category_label="Informant",
-                normalized_role=t.title(),
-                matched_keyword=f"meta:{t}",
-                guardrail_applied=True,
-            )
-
-    # Core domain classifier fallback
-    core_res = classify_relation_result(c_relation)
-    if core_res.relation == Relation.REPRESENTATIVE:
-        return ClassifiedRelation(
-            relation=Relation.REPRESENTATIVE,
-            category_label="Representative",
-            normalized_role="Representative",
-            matched_keyword=core_res.matched_keyword,
-            guardrail_applied=False,
-        )
-    elif core_res.relation == Relation.INFORMANT:
-        return ClassifiedRelation(
-            relation=Relation.INFORMANT,
-            category_label="Informant",
-            normalized_role="Informant",
-            matched_keyword=core_res.matched_keyword,
-            guardrail_applied=True,
-        )
-
-    # ---------------------------------------------------------
-    # TIER 4: none reached (Never "Unknown")
-    # ---------------------------------------------------------
     return ClassifiedRelation(
-        relation=Relation.UNKNOWN,
-        category_label="none reached",
-        normalized_role="none reached",
-        matched_keyword=None,
-        guardrail_applied=False,
+        relation=rel,
+        category_label=category_label,
+        normalized_role=normalized_role,
+        matched_keyword=matched_keyword,
+        guardrail_applied=guardrail,
     )

@@ -17,3 +17,9 @@
   - [x] Run pytest suite to verify no regressions (107/107 passed)
   - [x] Write unit test for Remarks Lab pipeline (`tests/test_remarks_lab.py`)
   - [x] Live upload endpoint validation with synthetic Excel data
+- [x] 5. Parallel 2-Tier Language-Routed Summarizer with Lingua
+  - [x] Engine Singleton & Parallel Router (`engine/router.py`) with Lingua Rust batch API (<25ms)
+  - [x] Parallel 2-Tier LLM Dispatcher (`engine/summarizer.py`) via LiteLLM (`qwen3-32b` & `nova-2-lite`)
+  - [x] UI & Benchmark Lab Integration (`remarks_lab.html` route badges, split card, filter pills)
+  - [x] Full Verification & 147/147 test suite pass
+

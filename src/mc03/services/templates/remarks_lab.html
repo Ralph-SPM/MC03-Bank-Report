@@ -29,44 +29,42 @@
       </p>
       <!-- AI Summarizer Status Indicator -->
       <div class="flex flex-wrap items-center gap-2 mt-2">
-        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold {% if groq_configured %}bg-emerald-50 text-emerald-700 border border-emerald-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">
-          <span class="w-1.5 h-1.5 rounded-full {% if groq_configured %}bg-emerald-500 animate-pulse{% else %}bg-amber-500{% endif %}"></span>
-          AI Summarizer: {{ groq_model | default('qwen/qwen3.8-27b') }}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold {% if litellm_configured or groq_configured %}bg-emerald-50 text-emerald-700 border border-emerald-200{% else %}bg-amber-50 text-amber-700 border border-amber-200{% endif %}">
+          <span class="w-1.5 h-1.5 rounded-full {% if litellm_configured or groq_configured %}bg-emerald-500 animate-pulse{% else %}bg-amber-500{% endif %}"></span>
+          2-Tier Models: <span class="font-mono font-bold">{{ model_tagalog | default('minimax-m2.5') }}</span> (TL) • <span class="font-mono font-bold">{{ model_english | default('minimax-m2.5') }}</span> (EN)
         </span>
-        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono {% if groq_batch %}bg-purple-50 text-purple-700 border border-purple-200{% else %}bg-slate-100 text-slate-700 border border-slate-200{% endif %}">
-          Batch Mode: {% if groq_batch %}ON (Concurrent){% else %}OFF (Sequential &amp; Rate-Paced){% endif %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-purple-50 text-purple-700 border border-purple-200">
+          <span class="material-symbols-outlined text-[13px]">bolt</span>
+          Lingua Rust: Parallel GIL-Free Batch
         </span>
+        {% if report and report.detection_latency_ms %}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
+          Router: {{ report.detection_latency_ms }} ms
+        </span>
+        {% endif %}
         {% if report and report.ai_summarized_count %}
         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 text-indigo-700 border border-indigo-200">
           AI Summarized: {{ report.ai_summarized_count }} rows
         </span>
         {% endif %}
+        {% if report %}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold {% if report.test_mode %}bg-amber-50 text-amber-800 border border-amber-300{% else %}bg-emerald-50 text-emerald-800 border border-emerald-300{% endif %}">
+          <span class="w-1.5 h-1.5 rounded-full {% if report.test_mode %}bg-amber-500{% else %}bg-emerald-500{% endif %}"></span>
+          Mode: {% if report.test_mode %}TEST (Source: MESSAGE){% else %}REAL (Source: FINAL REMARKS){% endif %}
+        </span>
+        {% endif %}
       </div>
     </div>
 
-    <!-- Upload / Quick Action with Date Selector -->
+    {% if report %}
+    <!-- Quick Action when viewing report -->
     <div class="flex items-center">
-      <form id="uploadForm" action="/remarks-lab/analyze" method="post" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
-        <div class="flex items-center bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs shadow-xs space-x-2">
-          <span class="material-symbols-outlined text-slate-500 text-[18px]">calendar_month</span>
-          <div class="flex items-center space-x-1">
-            <label class="text-[10px] font-mono text-slate-500 uppercase font-semibold" for="date_from">From:</label>
-            <input type="date" name="date_from" id="date_from" value="{{ date_from | default('', true) }}" class="text-xs bg-white border border-slate-200 rounded px-1.5 py-0.5 font-mono text-slate-800 focus:ring-1 focus:ring-indigo-500">
-          </div>
-          <span class="text-slate-300">→</span>
-          <div class="flex items-center space-x-1">
-            <label class="text-[10px] font-mono text-slate-500 uppercase font-semibold" for="date_to">To:</label>
-            <input type="date" name="date_to" id="date_to" value="{{ date_to | default('', true) }}" class="text-xs bg-white border border-slate-200 rounded px-1.5 py-0.5 font-mono text-slate-800 focus:ring-1 focus:ring-indigo-500">
-          </div>
-        </div>
-
-        <label class="cursor-pointer inline-flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors">
-          <span class="material-symbols-outlined text-[18px]">upload_file</span>
-          <span>Upload FIELD RSULT Workbook</span>
-          <input type="file" name="workbook" id="workbookInput" accept=".xlsx,.xls" class="hidden" onchange="document.getElementById('uploadForm').submit()">
-        </label>
-      </form>
+      <a href="/remarks-lab" class="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 rounded-lg text-xs font-semibold shadow-xs transition-colors">
+        <span class="material-symbols-outlined text-[18px]">upload_file</span>
+        <span>Upload New Workbook</span>
+      </a>
     </div>
+    {% endif %}
   </div>
 
   {% if report %}
@@ -94,7 +92,7 @@
   </div>
   {% endif %}
   <!-- 1. KPI Summary Cards -->
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+  <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
     <!-- Card 1: Total Remarks Processed -->
     <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
       <div class="flex items-center justify-between text-slate-500 text-xs">
@@ -169,8 +167,30 @@
         <span class="text-2xl font-bold font-mono text-blue-600">{{ report.char_overflow_prevented_count }}</span>
         <span class="text-[11px] text-slate-500">rows trimmed</span>
       </div>
-      <div class="mt-2 text-[10px] text-slate-500">
-        100% upload compliance guaranteed
+      <div class="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
+        <span>AI: <strong>{{ report.ai_summarized_count }}</strong></span>
+        <span>•</span>
+        <span>Rule Fallback: <strong>{{ report.rule_based_fallback_count }}</strong></span>
+      </div>
+    </div>
+
+    <!-- Card 6: Language Routing & Latency -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+      <div class="flex items-center justify-between text-slate-500 text-xs">
+        <span>Language Split &amp; Latency</span>
+        <span class="material-symbols-outlined text-purple-500 text-sm">translate</span>
+      </div>
+      <div class="mt-2 flex items-baseline space-x-1.5">
+        <span class="text-xl font-bold font-mono text-purple-700">
+          {{ report.english_count }} <span class="text-[11px] text-slate-500 font-normal">EN</span>
+          <span class="text-slate-300 font-light mx-0.5">|</span>
+          {{ report.tagalog_count }} <span class="text-[11px] text-slate-500 font-normal">TL</span>
+        </span>
+      </div>
+      <div class="mt-2 text-[10px] text-slate-500 flex items-center justify-between">
+        <span title="Native Rust Lingua parallel execution time">Lingua: <strong class="font-mono text-purple-900 font-semibold">{{ report.detection_latency_ms }} ms</strong></span>
+        <span>•</span>
+        <span>{% if report.total_rows > 0 %}{{ (report.english_count / report.total_rows * 100) | round(0) | int }}% EN{% else %}0%{% endif %}</span>
       </div>
     </div>
   </div>
@@ -181,6 +201,15 @@
     <div class="flex flex-wrap items-center gap-1.5 text-xs">
       <button onclick="setFilter('all')" id="pill-all" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-900 text-white shadow-xs">
         All ({{ report.total_rows }})
+      </button>
+      <button onclick="setFilter('english')" id="pill-english" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200" title="Pure English remarks routed to compact model">
+        English Only ({{ report.english_count }})
+      </button>
+      <button onclick="setFilter('tagalog')" id="pill-tagalog" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200" title="Tagalog/Taglish remarks routed to multilingual model">
+        Tagalog/Taglish ({{ report.tagalog_count }})
+      </button>
+      <button onclick="setFilter('overflow')" id="pill-overflow" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200" title="Remarks exceeding 200 characters">
+        Exceeds 200 Chars
       </button>
       <button onclick="setFilter('discrepancy')" id="pill-discrepancy" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
         Differences for Review ({{ report.discrepancy_count }})
@@ -194,19 +223,29 @@
       <button onclick="setFilter('sanitized')" id="pill-sanitized" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200">
         Tags Stripped ({{ report.sanitized_tag_count }})
       </button>
+      <button onclick="setFilter('ai-summarized')" id="pill-ai-summarized" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200" title="Rows shortened using 2-tier LLM">
+        AI-Summarized ({{ report.ai_summarized_count }})
+      </button>
+      <button onclick="setFilter('rule-based-fallback')" id="pill-rule-based-fallback" class="filter-btn px-3 py-1.5 rounded-full font-medium transition-colors bg-slate-100 text-slate-700 hover:bg-slate-200" title="Rows shortened using clause-boundary rule fallback">
+        Rule-Based Fallback ({{ report.rule_based_fallback_count }})
+      </button>
     </div>
 
-    <!-- Search Box & Export Action -->
+    <!-- Search Box, AI Fine-Tune Action, & Export Action -->
     <div class="flex items-center space-x-2">
-      <div class="relative w-full md:w-64">
+      <div class="relative w-full md:w-56">
         <span class="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">
           <span class="material-symbols-outlined text-[18px]">search</span>
         </span>
         <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Filter by text, acct, relation..." class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 focus:bg-white font-mono">
       </div>
+      <button id="sendFeedbackBtn" onclick="openFinetuneModal()" class="opacity-60 inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors whitespace-nowrap">
+        <span class="material-symbols-outlined text-[16px]">psychology</span>
+        <span>Send Feedback to AI (<span id="feedbackCount">0</span>)</span>
+      </button>
       <button onclick="downloadEvaluatedExcel()" class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors whitespace-nowrap">
         <span class="material-symbols-outlined text-[16px]">file_download</span>
-        <span>Export Bank-Ready Excel</span>
+        <span>{% if report and report.test_mode %}Export Test Mode CSV{% else %}Export Bank-Ready Excel{% endif %}</span>
       </button>
     </div>
   </div>
@@ -220,17 +259,30 @@
             <th class="py-3 px-3 w-28">Row &amp; Date</th>
             <th class="py-3 px-3 w-48">Account / Contact</th>
             <th class="py-3 px-3 w-44">Relation Class</th>
-            <th class="py-3 px-3 min-w-[280px]">Raw vs Cleaned Remark</th>
+            <th class="py-3 px-3 min-w-[320px]">Raw &amp; Cleaned Remarks (Bank Upload)</th>
             <th class="py-3 px-3 w-72">Tool's Answer vs. Your Original Entry</th>
-            <th class="py-3 px-3 min-w-[220px]">Bank Upload (200 Chars)</th>
+            <th class="py-3 px-3 min-w-[240px]">Feedback for Fine-Tuning LLM Prompt</th>
           </tr>
         </thead>
         <tbody id="remarksTableBody" class="divide-y divide-slate-200 font-sans">
           {% for r in report.rows[:1000] %}
           <tr class="hover:bg-slate-50/80 transition-colors row-item"
+              data-row-index="{{ r.row_index }}"
               data-category="{{ r.category_label | lower }}"
               data-discrepancy="{{ 'true' if r.discrepancy_flag else 'false' }}"
               data-sanitized="{{ 'true' if r.prohibited_tags_stripped else 'false' }}"
+              data-trim-method="{{ r.trim_method }}"
+              data-lang="{{ r.language_route | lower }}"
+              data-overflow="{{ 'true' if (r.original_char_count > 200 or r.final_char_count > 200) else 'false' }}"
+              data-raw-remark="{{ r.raw_remarks | e }}"
+              data-manual-csu="{{ r.manual_csu | e }}"
+              data-manual-rfd="{{ r.manual_rfd | e }}"
+              data-predicted-csu="{{ r.predicted_csu | e }}"
+              data-predicted-rfd="{{ r.predicted_rfd | e }}"
+              data-csu-reasoning="{{ r.csu_reasoning | e }}"
+              data-rfd-reasoning="{{ r.rfd_reasoning | e }}"
+              data-detailed-rfd="{{ r.detailed_rfd | e }}"
+              data-trimmed-statement="{{ r.trimmed_statement | e }}"
               data-search="{{ r.account_number }} {{ r.contact_person }} {{ r.contact_relation }} {{ r.category_label }} {{ r.predicted_csu }} {{ r.predicted_rfd }} {{ r.row_date }} {{ r.raw_remarks | lower }}">
 
             <!-- 1. Row Index & Flags -->
@@ -258,7 +310,23 @@
               <div class="text-[10px] font-mono text-slate-400">CH: {{ r.ch_code }}</div>
               {% endif %}
               <div class="mt-1 font-medium text-slate-700">{{ r.contact_person or '—' }}</div>
-              <div class="text-[11px] text-slate-500 italic">"{{ r.contact_relation or 'none stated' }}"</div>
+              {% if r.contact_relation and r.contact_relation.lower() not in ['none stated', 'none', 'n/a', 'na', ''] %}
+              <div class="text-[11px] text-slate-500 italic">"{{ r.contact_relation }}"</div>
+              {% endif %}
+              <!-- Language Route Badge -->
+              <div class="mt-1.5">
+                {% if r.language_route == 'TAGALOG' %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200" title="Routed to Multilingual Model: {{ report.model_tagalog }}">
+                  <span class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
+                  TL/Taglish • Full Model
+                </span>
+                {% else %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200" title="Routed to Compact Model: {{ report.model_english }}">
+                  <span class="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                  EN • Fast Model
+                </span>
+                {% endif %}
+              </div>
             </td>
 
             <!-- 3. Relation Classification Badge -->
@@ -268,54 +336,105 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5"></span>
                 Representative
               </span>
-              {% elif r.category_label == 'Informant' %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
-                Informant
-              </span>
-              {% elif r.category_label == 'Borrower' or r.category_label == 'Cardholder' %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                Borrower
-              </span>
-              {% else %}
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                {{ r.category_label or 'none reached' }}
-              </span>
-              {% endif %}
-
               <div class="mt-1 text-[10px] font-mono text-slate-500">
                 Role: <span class="font-semibold text-slate-700">{{ r.normalized_role }}</span>
               </div>
               {% if r.matched_relation_keyword %}
               <div class="text-[9px] text-slate-500 font-mono mt-0.5">
-                {% if r.matched_relation_keyword.startswith('meta:') %}
-                Found in: contact list field ({{ r.matched_relation_keyword[5:] }})
-                {% elif r.matched_relation_keyword.startswith('remark:') %}
-                Found in: remark text ({{ r.matched_relation_keyword[7:] }})
+                {% if r.matched_relation_keyword.startswith('remark:') %}
+                {% set rem_val = r.matched_relation_keyword[7:] %}
+                {% if ';' in rem_val %}
+                  {% set parts = rem_val.split(';', 1) %}
+                  Found in: remark text ({{ parts[0].strip() }}); {{ parts[1].strip() }}
                 {% else %}
-                Found in: remark text ({{ r.matched_relation_keyword }})
+                  Found in: remark text ({{ rem_val }})
+                {% endif %}
+                {% else %}
+                Found in: {{ r.matched_relation_keyword }}
                 {% endif %}
               </div>
               {% endif %}
+              {% elif r.category_label == 'Informant' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                Informant
+              </span>
+              <div class="mt-1 text-[10px] font-mono text-slate-500">
+                Role: <span class="font-semibold text-slate-700">{{ r.normalized_role }}</span>
+              </div>
+              {% if r.matched_relation_keyword %}
+              <div class="text-[9px] text-slate-500 font-mono mt-0.5">
+                {% if r.matched_relation_keyword.startswith('remark:') %}
+                {% set rem_val = r.matched_relation_keyword[7:] %}
+                {% if ';' in rem_val %}
+                  {% set parts = rem_val.split(';', 1) %}
+                  Found in: remark text ({{ parts[0].strip() }}); {{ parts[1].strip() }}
+                {% else %}
+                  Found in: remark text ({{ rem_val }})
+                {% endif %}
+                {% else %}
+                Found in: {{ r.matched_relation_keyword }}
+                {% endif %}
+              </div>
+              {% endif %}
+              {% elif r.category_label == 'Borrower' or r.category_label == 'Cardholder' %}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                Borrower
+              </span>
+              <div class="mt-1 text-[10px] font-mono text-slate-500">
+                Role: <span class="font-semibold text-slate-700">{{ r.normalized_role }}</span>
+              </div>
+              {% if r.matched_relation_keyword %}
+              <div class="text-[9px] text-slate-500 font-mono mt-0.5">
+                {% if r.matched_relation_keyword.startswith('remark:') %}
+                {% set rem_val = r.matched_relation_keyword[7:] %}
+                {% if ';' in rem_val %}
+                  {% set parts = rem_val.split(';', 1) %}
+                  Found in: remark text ({{ parts[0].strip() }}); {{ parts[1].strip() }}
+                {% else %}
+                  Found in: remark text ({{ rem_val }})
+                {% endif %}
+                {% else %}
+                Found in: {{ r.matched_relation_keyword }}
+                {% endif %}
+              </div>
+              {% endif %}
+              {% else %}
+              <span class="text-xs font-mono text-slate-400">none</span>
+              {% endif %}
             </td>
 
-            <!-- 4. Raw vs Cleaned Remarks -->
+            <!-- 4. Raw & Cleaned Remarks (Bank Ready) -->
             <td class="py-3 px-3 align-top">
-              <div class="space-y-1.5">
-                {% if r.raw_message %}
-                <div class="text-[11px] text-slate-700 bg-indigo-50/50 p-1.5 rounded border border-indigo-100">
+              <div class="space-y-2">
+                {% if report.test_mode %}
+                <div class="text-[11px] text-amber-900 bg-amber-50/70 p-1.5 rounded border border-amber-200">
                   <div class="flex items-center justify-between mb-0.5">
-                    <span class="text-[9px] uppercase font-bold text-indigo-600 font-mono">Raw Field Message:</span>
-                    <span class="text-[9px] font-mono text-indigo-500">{{ r.raw_message|length }} chars</span>
+                    <span class="text-[9px] uppercase font-bold text-amber-700 font-mono">Test Mode (from MESSAGE):</span>
+                    <span class="text-[9px] font-mono text-amber-600">{{ r.raw_remarks|length }} chars</span>
                   </div>
-                  <div class="line-clamp-3 text-[10px]">{{ r.raw_message }}</div>
+                  <div class="line-clamp-3 text-[10px]">{{ r.raw_remarks }}</div>
+                </div>
+                {% if r.final_remarks and r.final_remarks != r.raw_remarks %}
+                <div class="text-[10px] text-slate-500 line-clamp-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                  <span class="font-bold uppercase text-[9px] text-slate-400 font-mono">Final Remarks:</span> {{ r.final_remarks }}
                 </div>
                 {% endif %}
-                <div class="text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-1.5 rounded border border-slate-100">
-                  <span class="text-[9px] uppercase font-bold text-slate-400 block font-mono">Final Remarks:</span>
-                  {{ r.raw_remarks }}
+                {% else %}
+                <div class="text-[11px] text-slate-700 bg-slate-50 p-1.5 rounded border border-slate-200">
+                  <div class="flex items-center justify-between mb-0.5">
+                    <span class="text-[9px] uppercase font-bold text-slate-500 font-mono">Real Mode (from FINAL REMARKS):</span>
+                    <span class="text-[9px] font-mono text-slate-500">{{ r.raw_remarks|length }} chars</span>
+                  </div>
+                  <div class="line-clamp-3 text-[10px]">{{ r.raw_remarks }}</div>
                 </div>
+                {% if r.raw_message and r.raw_message != r.raw_remarks %}
+                <div class="text-[10px] text-slate-500 line-clamp-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                  <span class="font-bold uppercase text-[9px] text-slate-400 font-mono">Field Message:</span> {{ r.raw_message }}
+                </div>
+                {% endif %}
+                {% endif %}
                 {% if r.prohibited_tags_stripped %}
                 <div class="flex flex-wrap gap-1 items-center">
                   <span class="text-[9px] text-rose-600 font-bold uppercase">Stripped:</span>
@@ -326,6 +445,34 @@
                   {% endfor %}
                 </div>
                 {% endif %}
+
+                <!-- Bank Upload Cleaned Output with Length -->
+                <div class="bg-indigo-50/50 p-2 rounded-lg border border-indigo-100 font-mono text-[11px] text-slate-800 relative group">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-[9px] uppercase font-bold text-indigo-700 font-mono tracking-wider">Bank Upload Cleaned:</span>
+                    <div class="flex items-center space-x-1.5">
+                      {% if r.final_char_count > 200 %}
+                      <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                        PLS REVISE
+                      </span>
+                      {% endif %}
+                      {% if r.trim_method == 'llm' or r.ai_summarized %}
+                      <span class="text-indigo-600 font-bold text-[9px] bg-indigo-100/70 px-1 rounded border border-indigo-200" title="Summarized by Groq LLM">AI SUMMARIZED</span>
+                      {% elif r.trim_method == 'fallback' or r.truncated %}
+                      <span class="text-amber-700 font-bold text-[9px] bg-amber-100/70 px-1 rounded border border-amber-200" title="Rule-based clause truncation fallback">RULE FALLBACK</span>
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="cleaned-remark-text text-slate-900 leading-snug">{{ r.trimmed_statement }}</div>
+                  <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                    <span>
+                      Len: <span class="font-semibold {% if r.final_char_count > 200 %}text-rose-600 font-bold{% else %}text-slate-700{% endif %}">{{ r.final_char_count }}</span>/200
+                    </span>
+                    <button type="button" onclick="copyText('{{ r.trimmed_statement | replace('\'', '\\\'') }}')" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-sans font-medium hover:underline">
+                      Copy
+                    </button>
+                  </div>
+                </div>
               </div>
             </td>
 
@@ -333,7 +480,7 @@
             <td class="py-3 px-3 align-top">
               <div class="space-y-1.5 text-[11px]">
                 <!-- CSU Comparison -->
-                <div class="flex items-start justify-between border-b border-slate-100 pb-1">
+                <div class="flex items-start justify-between border-b border-slate-100 pb-1.5">
                   <span class="text-[10px] text-slate-400 font-mono mt-0.5">CSU:</span>
                   <div class="text-right">
                     <div class="font-semibold text-slate-800">
@@ -346,16 +493,21 @@
                       {% if r.csu_match %}✓{% else %}✗{% endif %}
                     </div>
                     {% endif %}
+                    {% if r.csu_reasoning %}
+                    <div class="text-[10px] text-slate-500 italic mt-1 text-right leading-tight max-w-[320px] ml-auto bg-slate-50/80 p-1 rounded border border-slate-100">
+                      <span class="text-[8px] font-bold text-indigo-700 not-italic uppercase tracking-wider bg-indigo-100/70 px-1 py-0.5 rounded mr-1">Why</span>{{ r.csu_reasoning }}
+                    </div>
+                    {% endif %}
                   </div>
                 </div>
 
                 <!-- RFD Comparison -->
-                <div class="flex items-start justify-between pt-0.5">
+                <div class="flex items-start justify-between pt-1">
                   <span class="text-[10px] text-slate-400 font-mono mt-0.5">RFD:</span>
                   <div class="text-right">
                     <div class="font-semibold text-slate-800">
                       <span class="text-[9px] text-slate-400 font-mono font-normal inline-block mr-1">Tool:</span>
-                      {{ r.predicted_rfd }}
+                      {% if r.predicted_rfd %}{{ r.predicted_rfd }}{% else %}<span class="text-slate-400 italic font-normal">[Empty / No info]</span>{% endif %}
                     </div>
                     {% if r.manual_rfd %}
                     <div class="text-[10px] font-mono mt-0.5 {% if r.rfd_match %}text-emerald-600{% else %}text-rose-600 font-bold{% endif %}">
@@ -363,11 +515,25 @@
                       {% if r.rfd_match %}✓{% else %}✗{% endif %}
                     </div>
                     {% endif %}
+                    {% if r.rfd_reasoning %}
+                    <div class="text-[10px] text-slate-500 italic mt-1 text-right leading-tight max-w-[320px] ml-auto bg-slate-50/80 p-1 rounded border border-slate-100">
+                      <span class="text-[8px] font-bold text-amber-800 not-italic uppercase tracking-wider bg-amber-100/70 px-1 py-0.5 rounded mr-1">Why</span>{{ r.rfd_reasoning }}
+                    </div>
+                    {% endif %}
                   </div>
                 </div>
 
                 <div class="text-[9px] text-slate-400 font-mono text-right pt-0.5">
-                  {% if r.hierarchy_source == 'RCBC_Taxonomy' %}
+                  {% if r.classification_source == 'AI' %}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-50 text-purple-700 border border-purple-200" title="Classified by 2-Tier LLM">
+                    <span class="w-1.5 h-1.5 rounded-full bg-purple-600"></span>
+                    2-Tier AI Classified
+                  </span>
+                  {% elif r.classification_source == 'EVALUATED_EXPORT' %}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 border border-slate-200" title="Retained from Evaluated CSV Export">
+                    Evaluated Export
+                  </span>
+                  {% elif r.hierarchy_source == 'RCBC_Taxonomy' %}
                   Matched via: standard rules
                   {% elif r.hierarchy_source == 'PipeTags' %}
                   Matched via: pre-tagged remark
@@ -375,40 +541,24 @@
                   Matched via: {{ r.hierarchy_source }}
                   {% endif %}
                 </div>
-                {% if r.detailed_rfd %}
-                <div class="mt-1 pt-1 border-t border-slate-100 text-[10px] text-slate-600 font-mono">
-                  <span class="text-[9px] uppercase font-bold text-slate-400 block">Detailed RFD:</span>
-                  {{ r.detailed_rfd }}
-                </div>
-                {% endif %}
               </div>
             </td>
 
-            <!-- 6. Bank Upload Output (200 Chars) -->
+            <!-- 6. Feedback for Fine-Tuning LLM Prompt (Leave blank as default) -->
             <td class="py-3 px-3 align-top">
-              <div class="bg-indigo-50/40 p-2 rounded border border-indigo-100 font-mono text-[11px] text-slate-800 relative group">
-                <div>{{ r.trimmed_statement }}</div>
-                <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
-                  <span>
-                    Len: <span class="font-semibold text-slate-700">{{ r.final_char_count }}</span>/200
-                  </span>
-                  {% if r.final_char_count <= 200 %}
-                  <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200" title="Bank Formula Check">
-                    OKAY NA TO
-                  </span>
-                  {% else %}
-                  <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
-                    PLS REVISE
-                  </span>
-                  {% endif %}
-                  {% if r.ai_summarized %}
-                  <span class="text-indigo-600 font-bold text-[9px] bg-indigo-50 px-1 rounded border border-indigo-200" title="Summarized by Groq qwen/qwen3.8-27b">AI SUMMARIZED</span>
-                  {% elif r.truncated %}
-                  <span class="text-amber-600 font-bold text-[9px] bg-amber-50 px-1 rounded border border-amber-200">TRIMMED</span>
-                  {% endif %}
-                  <button onclick="copyText('{{ r.trimmed_statement | replace('\'', '\\\'') }}')" class="text-indigo-600 hover:text-indigo-800 text-[10px] font-sans font-medium">
-                    Copy
-                  </button>
+              <div class="space-y-1">
+                <textarea
+                  class="prompt-feedback-input w-full text-xs p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 focus:bg-white resize-y text-slate-700 placeholder:text-slate-400 font-sans transition-colors"
+                  rows="2"
+                  placeholder="Leave blank (default) or type feedback for AI prompt tuning..."
+                  data-row-index="{{ r.row_index if (r.row_index is defined and r.row_index) else loop.index }}"
+                  data-account="{{ r.account_number }}"
+                  data-raw="{{ r.raw_remarks | replace('"', '&quot;') }}"
+                  data-cleaned="{{ r.trimmed_statement | replace('"', '&quot;') }}"
+                  oninput="updateFeedbackCounter()"></textarea>
+                <div class="flex items-center justify-between text-[9px] text-slate-400">
+                  <span>Default: blank</span>
+                  <span class="text-slate-400">Filled rows sent to AI</span>
                 </div>
               </div>
             </td>
@@ -428,6 +578,80 @@
     <div id="noResultsRow" class="hidden p-8 text-center text-slate-500 text-xs">
       <span class="material-symbols-outlined text-3xl text-slate-300 block mb-1">search_off</span>
       No remark records matching your filter criteria.
+    </div>
+  </div>
+
+  <!-- Fine-Tuning AI Modal -->
+  <div id="finetuneModal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+            <span class="material-symbols-outlined text-[20px]">psychology</span>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">LLM Prompt Fine-Tuner &amp; Auto-Optimizer</h3>
+            <p class="text-[11px] text-slate-500">AI analysis of human reviewer corrections to refine the summarization prompt</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeFinetuneModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-100 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">close</span>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 overflow-y-auto flex-1 text-xs space-y-4 font-sans" id="finetuneModalBody">
+        <div id="finetuneLoading" class="py-12 text-center space-y-3">
+          <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent"></div>
+          <p class="text-slate-700 font-semibold text-sm">Consulting AI Prompt Specialist...</p>
+          <p class="text-slate-400 text-xs max-w-md mx-auto">Analyzing reviewer corrections across filled rows to diagnose systematic errors and synthesize an optimized prompt.</p>
+        </div>
+
+        <div id="finetuneResult" class="hidden space-y-4">
+          <div class="flex items-center justify-between bg-indigo-50 border border-indigo-100 p-3 rounded-lg text-indigo-900">
+            <div class="flex items-center space-x-2">
+              <span class="material-symbols-outlined text-indigo-600 text-[18px]">verified</span>
+              <span class="font-semibold">AI Prompt Optimization Complete</span>
+            </div>
+            <span id="finetuneItemsBadge" class="text-[10px] font-mono font-bold bg-indigo-200/60 text-indigo-800 px-2 py-0.5 rounded">
+              0 feedback rows analyzed
+            </span>
+          </div>
+
+          <!-- Applied Rules Confirmation Banner -->
+          <div id="finetuneAppliedBanner" class="hidden bg-emerald-50 border border-emerald-300 rounded-xl p-4 text-emerald-950 shadow-sm space-y-2.5">
+            <div class="flex items-center space-x-2">
+              <span class="material-symbols-outlined text-emerald-600 text-[22px]">check_circle</span>
+              <span class="font-bold text-sm text-emerald-900">Directives Successfully Applied to Active Models!</span>
+            </div>
+            <p class="text-xs text-emerald-800 leading-relaxed">
+              The rules below have been saved to <code class="bg-emerald-100 px-1 py-0.5 rounded text-emerald-900 font-mono text-[11px]">storage/custom_prompt_rules.json</code> and will be immediately enforced by both <strong>Qwen-3-32B</strong> (Tagalog) and <strong>Nova-2-Lite</strong> (English) for subsequent summaries.
+            </p>
+            <div id="finetuneAppliedRulesList" class="bg-white/95 rounded-lg p-3 border border-emerald-200 font-mono text-[11px] text-slate-800 space-y-1.5 max-h-48 overflow-y-auto shadow-inner"></div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-slate-800 max-h-[420px] overflow-y-auto shadow-inner" id="finetuneAnalysisContent"></div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <span class="text-[11px] text-slate-400" id="finetuneStatusText">Ready</span>
+        <div class="flex items-center space-x-2">
+          <button type="button" onclick="copyAnalysisText()" id="copyAnalysisBtn" class="hidden inline-flex items-center space-x-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors">
+            <span class="material-symbols-outlined text-[16px]">content_copy</span>
+            <span>Copy AI Recommendations</span>
+          </button>
+          <button type="button" onclick="applyFinetunedRules()" id="applyRulesBtn" class="hidden inline-flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors">
+            <span class="material-symbols-outlined text-[16px]">bolt</span>
+            <span>Apply to Active Models</span>
+          </button>
+          <button type="button" onclick="closeFinetuneModal()" class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   </div>
   {% else %}
@@ -476,13 +700,124 @@
           </div>
         </div>
 
-        <div class="pt-2 flex flex-col items-center space-y-2">
-          <label class="cursor-pointer w-full inline-flex items-center justify-center space-x-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors">
-            <span class="material-symbols-outlined text-lg">upload_file</span>
-            <span>Select FIELD RSULT Workbook &amp; Analyze</span>
-            <input type="file" accept=".xlsx,.xls" class="hidden" onchange="document.getElementById('welcomeUploadForm').submit()" name="workbook" required>
-          </label>
-          <span class="text-[11px] text-slate-400">Targeting sheet: <span class="font-mono font-medium">FIELD RSULT</span></span>
+        <!-- Test Mode Toggle Switch -->
+        <div class="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between gap-3">
+            <div class="space-y-0.5 min-w-0">
+              <div class="flex items-center space-x-2">
+                <span class="material-symbols-outlined text-[18px] text-indigo-600">tune</span>
+                <span class="text-xs font-bold text-slate-900">Processing Mode</span>
+                <span id="testModeBadge" class="text-[10px] font-mono px-2 py-0.5 rounded font-semibold {% if test_mode %}bg-amber-50 text-amber-800 border border-amber-300{% else %}bg-slate-100 text-slate-700 border border-slate-200{% endif %}">
+                  {% if test_mode %}ON (Test Mode){% else %}OFF (Real Mode){% endif %}
+                </span>
+              </div>
+              <p id="testModeDesc" class="text-[11px] text-slate-500">
+                {% if test_mode %}
+                <span class="text-amber-700 font-medium">Test Mode:</span> Re-evaluate agreement from <strong class="font-mono text-indigo-700 font-semibold">MESSAGE</strong> or exported <strong class="font-mono text-indigo-700 font-semibold">.CSV</strong> (Original CSU/RFD).
+                {% else %}
+                <span class="text-slate-600 font-medium">Real Mode:</span> Remark is grabbed from <strong class="font-mono text-slate-800 font-semibold">FINAL REMARKS</strong> column.
+                {% endif %}
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" name="test_mode" id="testModeToggle" value="true" {% if test_mode %}checked{% endif %} class="sr-only peer" onchange="updateTestModeUI(this.checked)">
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-indigo-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Evaluation Engine Toggle Switch (Full AI vs Rule-Only) -->
+        <div class="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between gap-3">
+            <div class="space-y-0.5 min-w-0">
+              <div class="flex items-center space-x-2">
+                <span class="material-symbols-outlined text-[18px] text-emerald-600">psychology</span>
+                <span class="text-xs font-bold text-slate-900">Evaluation Engine</span>
+                <span id="runAiBadge" class="text-[10px] font-mono px-2 py-0.5 rounded font-semibold {% if run_ai | default(true) %}bg-emerald-50 text-emerald-800 border border-emerald-300{% else %}bg-slate-100 text-slate-700 border border-slate-200{% endif %}">
+                  {% if run_ai | default(true) %}Full 2-Tier AI (CSU, RFD &amp; Summary){% else %}Rule Engine (Instant){% endif %}
+                </span>
+              </div>
+              <p id="runAiDesc" class="text-[11px] text-slate-500">
+                {% if run_ai | default(true) %}
+                <span class="text-emerald-700 font-medium">Full AI Mode:</span> 2-Tier LLM directly classifies CSU, RFD, Detailed RFD, and summarizes within 200 characters.
+                {% else %}
+                <span class="text-slate-600 font-medium">Rule Engine:</span> Instant deterministic evaluation (zero token usage).
+                {% endif %}
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" name="run_ai" id="runAiToggle" value="true" {% if run_ai | default(true) %}checked{% endif %} class="sr-only peer" onchange="updateRunAiUI(this.checked)">
+              <div class="w-11 h-6 bg-slate-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-indigo-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Hidden File Input -->
+        <input type="file" id="workbookFileInput" name="workbook" accept=".xlsx,.xls,.csv" class="hidden" required>
+
+        <!-- Dropzone / Empty File State -->
+        <div id="dropzoneArea" onclick="document.getElementById('workbookFileInput').click()" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl p-5 text-center cursor-pointer transition-colors bg-white hover:bg-indigo-50/20 group">
+          <div class="flex flex-col items-center justify-center space-y-2">
+            <div class="w-12 h-12 rounded-full bg-indigo-50 group-hover:bg-indigo-100 text-indigo-600 flex items-center justify-center transition-colors">
+              <span class="material-symbols-outlined text-2xl">upload_file</span>
+            </div>
+            <div>
+              <p class="text-xs font-semibold text-slate-800">
+                <span class="text-indigo-600 group-hover:underline">Upload FIELD RSULT Workbook or Test CSV</span> or drag and drop
+              </p>
+              <p class="text-[11px] text-slate-500 font-mono mt-0.5">
+                .xlsx, .xls, or exported Test Mode .csv
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- File Selected Staging Preview (hidden initially) -->
+        <div id="fileSelectedArea" class="hidden bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center space-x-3 min-w-0">
+              <div class="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shrink-0">
+                <span class="material-symbols-outlined text-xl">description</span>
+              </div>
+              <div class="text-left min-w-0">
+                <p id="selectedFileName" class="text-xs font-bold text-slate-900 font-mono truncate max-w-[220px] sm:max-w-xs">filename.xlsx</p>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span id="selectedFileSize" class="text-[11px] text-slate-500 font-mono">0 KB</span>
+                  <span class="text-slate-300">&bull;</span>
+                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>
+                    File Staged
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center space-x-1.5 shrink-0">
+              <button type="button" id="replaceFileBtn" class="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 active:bg-slate-100 text-slate-700 text-xs font-medium transition-colors shadow-2xs">
+                <span class="material-symbols-outlined text-[15px] text-slate-500">cached</span>
+                <span>Replace</span>
+              </button>
+              <button type="button" id="removeFileBtn" class="inline-flex items-center p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors" title="Remove file">
+                <span class="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Confirm & Proceed Action -->
+        <div class="pt-2 space-y-2">
+          <button
+            type="submit"
+            id="proceedBtn"
+            disabled
+            class="w-full inline-flex items-center justify-center space-x-2 px-5 py-2.5 rounded-lg text-xs font-semibold shadow-xs transition-all duration-150 bg-slate-200 text-slate-400 cursor-not-allowed"
+          >
+            <span class="material-symbols-outlined text-lg" id="proceedIcon">play_arrow</span>
+            <span id="proceedText">Proceed with Remarks Cleaning</span>
+          </button>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
+            <span>Targeting sheet: <span class="font-mono font-medium text-slate-600">FIELD RSULT</span></span>
+            <span id="uploadHint" class="text-slate-400">Select workbook to enable proceed</span>
+          </div>
         </div>
       </form>
     </div>
@@ -491,8 +826,155 @@
 
 </div>
 
-<!-- Client-side Interactive Filter & Search Script -->
 <script>
+function updateTestModeUI(isChecked) {
+  const badge = document.getElementById('testModeBadge');
+  const desc = document.getElementById('testModeDesc');
+  if (!badge || !desc) return;
+  if (isChecked) {
+    badge.textContent = 'ON (Test Mode)';
+    badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-amber-50 text-amber-800 border border-amber-300';
+    desc.innerHTML = '<span class="text-amber-700 font-medium">Test Mode:</span> Re-evaluate agreement from <strong class="font-mono text-indigo-700 font-semibold">MESSAGE</strong> or exported <strong class="font-mono text-indigo-700 font-semibold">.CSV</strong> (Original CSU/RFD).';
+  } else {
+    badge.textContent = 'OFF (Real Mode)';
+    badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-slate-100 text-slate-700 border border-slate-200';
+    desc.innerHTML = '<span class="text-slate-600 font-medium">Real Mode:</span> Remark is grabbed from <strong class="font-mono text-slate-800 font-semibold">FINAL REMARKS</strong> column.';
+  }
+}
+
+function updateRunAiUI(isChecked) {
+  const badge = document.getElementById('runAiBadge');
+  const desc = document.getElementById('runAiDesc');
+  if (!badge || !desc) return;
+  if (isChecked) {
+    badge.textContent = 'Full 2-Tier AI (CSU, RFD & Summary)';
+    badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300';
+    desc.innerHTML = '<span class="text-emerald-700 font-medium">Full AI Mode:</span> 2-Tier LLM directly classifies CSU, RFD, Detailed RFD, and summarizes within 200 characters.';
+  } else {
+    badge.textContent = 'Rule Engine (Instant)';
+    badge.className = 'text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-slate-100 text-slate-700 border border-slate-200';
+    desc.innerHTML = '<span class="text-slate-600 font-medium">Rule Engine:</span> Instant deterministic evaluation (zero token usage).';
+  }
+}
+
+// Upload & Confirmation Handler
+(function initRemarksLabUpload() {
+  const form = document.getElementById('welcomeUploadForm');
+  const fileInput = document.getElementById('workbookFileInput');
+  const dropzoneArea = document.getElementById('dropzoneArea');
+  const fileSelectedArea = document.getElementById('fileSelectedArea');
+  const selectedFileName = document.getElementById('selectedFileName');
+  const selectedFileSize = document.getElementById('selectedFileSize');
+  const replaceFileBtn = document.getElementById('replaceFileBtn');
+  const removeFileBtn = document.getElementById('removeFileBtn');
+  const proceedBtn = document.getElementById('proceedBtn');
+  const proceedText = document.getElementById('proceedText');
+  const proceedIcon = document.getElementById('proceedIcon');
+  const uploadHint = document.getElementById('uploadHint');
+
+  if (!form || !fileInput || !dropzoneArea || !fileSelectedArea || !proceedBtn) return;
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    selectedFileName.textContent = file.name;
+    selectedFileSize.textContent = formatBytes(file.size);
+    dropzoneArea.classList.add('hidden');
+    fileSelectedArea.classList.remove('hidden');
+
+    proceedBtn.disabled = false;
+    proceedBtn.classList.remove('bg-slate-200', 'text-slate-400', 'cursor-not-allowed');
+    proceedBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'active:bg-indigo-800', 'text-white', 'cursor-pointer');
+    if (uploadHint) {
+      uploadHint.textContent = 'File ready. Click to confirm and proceed.';
+      uploadHint.classList.remove('text-slate-400');
+      uploadHint.classList.add('text-emerald-600', 'font-medium');
+    }
+  }
+
+  function resetFile() {
+    fileInput.value = '';
+    dropzoneArea.classList.remove('hidden');
+    fileSelectedArea.classList.add('hidden');
+
+    proceedBtn.disabled = true;
+    proceedBtn.classList.add('bg-slate-200', 'text-slate-400', 'cursor-not-allowed');
+    proceedBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'active:bg-indigo-800', 'text-white', 'cursor-pointer');
+    if (uploadHint) {
+      uploadHint.textContent = 'Select workbook to enable proceed';
+      uploadHint.classList.add('text-slate-400');
+      uploadHint.classList.remove('text-emerald-600', 'font-medium');
+    }
+  }
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files && fileInput.files.length > 0) {
+      handleFile(fileInput.files[0]);
+    } else {
+      resetFile();
+    }
+  });
+
+  if (replaceFileBtn) {
+    replaceFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+  }
+
+  if (removeFileBtn) {
+    removeFileBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      resetFile();
+    });
+  }
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropzoneArea.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzoneArea.classList.add('border-indigo-500', 'bg-indigo-50/40');
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropzoneArea.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzoneArea.classList.remove('border-indigo-500', 'bg-indigo-50/40');
+    }, false);
+  });
+
+  dropzoneArea.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    if (dt && dt.files && dt.files.length > 0) {
+      fileInput.files = dt.files;
+      handleFile(dt.files[0]);
+    }
+  });
+
+  form.addEventListener('submit', (e) => {
+    if (!fileInput.files || fileInput.files.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    proceedBtn.disabled = true;
+    proceedBtn.classList.add('opacity-80', 'cursor-wait');
+    if (proceedText) proceedText.textContent = 'Processing Remarks & Cleaning...';
+    if (proceedIcon) {
+      proceedIcon.textContent = 'hourglass_top';
+      proceedIcon.classList.add('animate-spin');
+    }
+  });
+})();
+
 let currentFilter = 'all';
 
 function setFilter(filterType) {
@@ -522,6 +1004,9 @@ function applyFilters() {
     const category = row.getAttribute('data-category') || '';
     const isDiscrepancy = row.getAttribute('data-discrepancy') === 'true';
     const isSanitized = row.getAttribute('data-sanitized') === 'true';
+    const trimMethod = row.getAttribute('data-trim-method') || '';
+    const lang = (row.getAttribute('data-lang') || '').toLowerCase();
+    const isOverflow = row.getAttribute('data-overflow') === 'true';
     const searchText = row.getAttribute('data-search') || '';
 
     let matchesFilter = true;
@@ -533,6 +1018,16 @@ function applyFilters() {
       matchesFilter = (category === 'informant');
     } else if (currentFilter === 'sanitized') {
       matchesFilter = isSanitized;
+    } else if (currentFilter === 'ai-summarized') {
+      matchesFilter = (trimMethod === 'llm');
+    } else if (currentFilter === 'rule-based-fallback') {
+      matchesFilter = (trimMethod === 'fallback');
+    } else if (currentFilter === 'english') {
+      matchesFilter = (lang === 'english');
+    } else if (currentFilter === 'tagalog') {
+      matchesFilter = (lang === 'tagalog');
+    } else if (currentFilter === 'overflow') {
+      matchesFilter = isOverflow;
     }
 
     const matchesSearch = (!query || searchText.includes(query));
@@ -552,16 +1047,33 @@ function applyFilters() {
 }
 
 function downloadEvaluatedExcel() {
+  const isTestMode = {% if report and report.test_mode %}true{% else %}false{% endif %};
   const rows = [];
-  rows.push([
+  
+  const headers = [
     "Row Index", "Account Number", "CH Code", "Contact Person", "Contact Relation",
-    "Category Label", "Role", "COLLECTION STATUS UPDATE", "RFD", "DETAILED RFD",
+    "Category Label", "Role"
+  ];
+  if (isTestMode) {
+    headers.push("Raw Remark", "Original CSU", "Original RFD");
+  }
+  headers.push("COLLECTION STATUS UPDATE");
+  if (isTestMode) {
+    headers.push("CSU Why");
+  }
+  headers.push("RFD");
+  if (isTestMode) {
+    headers.push("RFD Why");
+  }
+  headers.push(
+    "DETAILED RFD",
     "FINAL REMARKS", "Char Count", "char checker"
-  ]);
+  );
+  rows.push(headers);
 
   document.querySelectorAll("#remarksTableBody tr.row-item").forEach(tr => {
     if (tr.style.display !== "none") {
-      const idx = tr.querySelector("td:nth-child(1) .font-bold")?.innerText.replace("#", "").trim() || "";
+      const idx = tr.getAttribute("data-row-index") || tr.querySelector("td:nth-child(1) .font-bold")?.innerText.replace("#", "").trim() || "";
       const acct = tr.querySelector("td:nth-child(2) .font-semibold")?.innerText.trim() || "";
       const chEl = tr.querySelector("td:nth-child(2) .text-\\[10px\\]");
       const ch = chEl ? chEl.innerText.replace("CH: ", "").trim() : "";
@@ -570,20 +1082,51 @@ function downloadEvaluatedExcel() {
       const cat = tr.getAttribute("data-category") || "";
       const role = tr.querySelector("td:nth-child(3) .font-semibold")?.innerText.trim() || "";
 
-      // CSU & RFD from tool's prediction
-      const csuNodes = tr.querySelectorAll("td:nth-child(5) .font-semibold");
-      const csu = csuNodes.length > 0 ? csuNodes[0].innerText.replace("Tool:", "").trim() : "";
-      const rfd = csuNodes.length > 1 ? csuNodes[1].innerText.replace("Tool:", "").trim() : "";
+      // Raw Remark & Original Entries
+      const rawRemark = tr.getAttribute("data-raw-remark") || "";
+      const origCsu = tr.getAttribute("data-manual-csu") || "";
+      const origRfd = tr.getAttribute("data-manual-rfd") || "";
 
-      const detailedEl = tr.querySelector("td:nth-child(5) .border-t");
-      const detailed = detailedEl ? detailedEl.innerText.replace("DETAILED RFD:", "").trim() : "";
+      // Tool's CSU & RFD
+      const csu = tr.getAttribute("data-predicted-csu") || (() => {
+        const csuNodes = tr.querySelectorAll("td:nth-child(5) .font-semibold");
+        return csuNodes.length > 0 ? csuNodes[0].innerText.replace("Tool:", "").trim() : "";
+      })();
+      const csuWhy = tr.getAttribute("data-csu-reasoning") || "";
 
-      const remarkEl = tr.querySelector("td:nth-child(6) .font-mono div:first-child");
-      const remark = remarkEl ? remarkEl.innerText.trim() : "";
+      const rfd = tr.getAttribute("data-predicted-rfd") || (() => {
+        const csuNodes = tr.querySelectorAll("td:nth-child(5) .font-semibold");
+        return csuNodes.length > 1 ? csuNodes[1].innerText.replace("Tool:", "").trim() : "";
+      })();
+      const rfdWhy = tr.getAttribute("data-rfd-reasoning") || "";
+
+      const detailed = tr.getAttribute("data-detailed-rfd") || (() => {
+        const detailedEl = tr.querySelector("td:nth-child(5) .border-t");
+        return detailedEl ? detailedEl.innerText.replace("DETAILED RFD:", "").trim() : "";
+      })();
+
+      const remark = tr.getAttribute("data-trimmed-statement") || (() => {
+        const remarkEl = tr.querySelector("td:nth-child(4) .cleaned-remark-text");
+        return remarkEl ? remarkEl.innerText.trim() : "";
+      })();
       const len = remark.length;
-      const checker = len <= 200 ? "OKAY NA TO" : "PLS REVISE";
+      const checker = len <= 200 ? "" : "PLS REVISE";
 
-      rows.push([idx, acct, ch, person, relation, cat, role, csu, rfd, detailed, remark, len, checker]);
+      const rowData = [idx, acct, ch, person, relation, cat, role];
+      if (isTestMode) {
+        rowData.push(rawRemark, origCsu, origRfd);
+      }
+      rowData.push(csu);
+      if (isTestMode) {
+        rowData.push(csuWhy);
+      }
+      rowData.push(rfd);
+      if (isTestMode) {
+        rowData.push(rfdWhy);
+      }
+      rowData.push(detailed, remark, len, checker);
+
+      rows.push(rowData);
     }
   });
 
@@ -597,11 +1140,237 @@ function downloadEvaluatedExcel() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.setAttribute("href", url);
-  link.setAttribute("download", "RCBC_FIELD_RESULT_BANK_READY.csv");
+  const filename = isTestMode ? "RCBC_FIELD_RESULT_TEST_EVALUATED.csv" : "RCBC_FIELD_RESULT_BANK_READY.csv";
+  link.setAttribute("download", filename);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+// -------------------------------------------------------------
+// LLM Prompt Fine-Tuning Feedback Engine
+// -------------------------------------------------------------
+function updateFeedbackCounter() {
+  const inputs = document.querySelectorAll('.prompt-feedback-input');
+  let count = 0;
+  inputs.forEach(input => {
+    if (input.value && input.value.trim().length > 0) {
+      count++;
+    }
+  });
+  const countSpan = document.getElementById('feedbackCount');
+  if (countSpan) countSpan.innerText = count;
+
+  const btn = document.getElementById('sendFeedbackBtn');
+  if (btn) {
+    if (count > 0) {
+      btn.classList.remove('opacity-60');
+      btn.classList.add('ring-2', 'ring-indigo-400');
+    } else {
+      btn.classList.add('opacity-60');
+      btn.classList.remove('ring-2', 'ring-indigo-400');
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateFeedbackCounter();
+});
+
+let currentFinetuneData = null;
+
+function escapeHtml(str) {
+  if (!str) return '';
+  const p = document.createElement('p');
+  p.textContent = str;
+  return p.innerHTML;
+}
+
+function openFinetuneModal() {
+  const inputs = document.querySelectorAll('.prompt-feedback-input');
+  const items = [];
+  inputs.forEach((ta, idx) => {
+    const fb = (ta.value || '').trim();
+    if (fb) {
+      items.push({
+        row_index: ta.dataset.rowIndex || (idx + 1),
+        account_number: ta.dataset.account,
+        raw_remarks: ta.dataset.raw,
+        cleaned_remarks: ta.dataset.cleaned,
+        feedback: fb
+      });
+    }
+  });
+
+  if (items.length === 0) {
+    alert("Leave blank as default: No feedback entered yet.\n\nPlease type feedback in Column 6 for at least one row where the AI summary can be improved, then click 'Send Feedback to AI'.");
+    return;
+  }
+
+  currentFinetuneData = null;
+
+  const modal = document.getElementById('finetuneModal');
+  const loading = document.getElementById('finetuneLoading');
+  const result = document.getElementById('finetuneResult');
+  const copyBtn = document.getElementById('copyAnalysisBtn');
+  const applyBtn = document.getElementById('applyRulesBtn');
+  const statusText = document.getElementById('finetuneStatusText');
+  const appliedBanner = document.getElementById('finetuneAppliedBanner');
+
+  if (modal) modal.classList.remove('hidden');
+  if (loading) loading.classList.remove('hidden');
+  if (result) result.classList.add('hidden');
+  if (copyBtn) copyBtn.classList.add('hidden');
+  if (appliedBanner) appliedBanner.classList.add('hidden');
+
+  if (applyBtn) {
+    applyBtn.classList.add('hidden');
+    applyBtn.disabled = false;
+    applyBtn.innerHTML = `<span class="material-symbols-outlined text-[16px]">bolt</span><span>Apply to Active Models</span>`;
+    applyBtn.className = "hidden inline-flex items-center space-x-1 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer";
+  }
+  if (statusText) statusText.innerText = `Analyzing ${items.length} feedback item(s)...`;
+
+  fetch('/remarks-lab/finetune-prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: items })
+  })
+  .then(res => {
+    if (!res.ok) {
+      return res.json().then(data => { throw new Error(data.error || 'Server error occurred'); });
+    }
+    return res.json();
+  })
+  .then(data => {
+    currentFinetuneData = data;
+    if (loading) loading.classList.add('hidden');
+    if (result) result.classList.remove('hidden');
+    if (copyBtn) copyBtn.classList.remove('hidden');
+    if (applyBtn) {
+      applyBtn.classList.remove('hidden');
+      applyBtn.disabled = false;
+    }
+
+    const badge = document.getElementById('finetuneItemsBadge');
+    if (badge) badge.innerText = `${data.total_feedback_items} feedback row(s) analyzed`;
+
+    const content = document.getElementById('finetuneAnalysisContent');
+    if (content) content.innerText = data.ai_analysis;
+
+    if (statusText) statusText.innerText = "Fine-tuning analysis complete. Review recommendations below.";
+  })
+  .catch(err => {
+    if (loading) loading.classList.add('hidden');
+    if (result) result.classList.remove('hidden');
+    const content = document.getElementById('finetuneAnalysisContent');
+    if (content) content.innerText = `Error: ${err.message}\n\nPlease check server connection and try again.`;
+    if (statusText) statusText.innerText = "Error encountered during AI prompt optimization.";
+  });
+}
+
+function closeFinetuneModal() {
+  const modal = document.getElementById('finetuneModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function copyAnalysisText() {
+  const text = document.getElementById('finetuneAnalysisContent')?.innerText || '';
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const copyBtn = document.getElementById('copyAnalysisBtn');
+    if (copyBtn) {
+      const orig = copyBtn.innerHTML;
+      copyBtn.innerHTML = `<span class="material-symbols-outlined text-[16px] text-emerald-600">check</span><span class="text-emerald-600">Copied!</span>`;
+      setTimeout(() => { copyBtn.innerHTML = orig; }, 2000);
+    }
+  });
+}
+
+function applyFinetunedRules() {
+  const statusText = document.getElementById('finetuneStatusText');
+  const applyBtn = document.getElementById('applyRulesBtn');
+  const banner = document.getElementById('finetuneAppliedBanner');
+  const rulesList = document.getElementById('finetuneAppliedRulesList');
+  const modalBody = document.getElementById('finetuneModalBody');
+
+  if (!currentFinetuneData) {
+    const content = document.getElementById('finetuneAnalysisContent')?.innerText || '';
+    if (!content) {
+      alert("Please wait for AI analysis to finish before applying rules.");
+      return;
+    }
+    currentFinetuneData = { csu_rfd_rules: [], summary_rules: [] };
+  }
+
+  if (statusText) statusText.innerText = "Applying rules to active models...";
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = `<span class="material-symbols-outlined text-[16px] animate-spin">sync</span><span>Applying...</span>`;
+  }
+
+  const payload = {
+    csu_rfd_rules: currentFinetuneData.csu_rfd_rules || [],
+    summary_rules: currentFinetuneData.summary_rules || []
+  };
+
+  fetch('/remarks-lab/apply-rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(res => {
+    if (!res.ok) throw new Error('Failed to apply rules (HTTP ' + res.status + ')');
+    return res.json();
+  })
+  .then(data => {
+    if (statusText) statusText.innerText = "Rules successfully applied to active models!";
+    if (applyBtn) {
+      applyBtn.innerHTML = `<span class="material-symbols-outlined text-[16px] text-white">verified</span><span>Rules Active in Models</span>`;
+      applyBtn.className = "inline-flex items-center space-x-1 px-3.5 py-1.5 bg-emerald-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors";
+      applyBtn.disabled = true;
+    }
+
+    if (banner && rulesList) {
+      const rules = data.applied_rules || payload;
+      const csuRules = rules.csu_rfd_rules || [];
+      const sumRules = rules.summary_rules || [];
+      let html = '';
+
+      if (csuRules.length > 0) {
+        html += '<div class="font-bold text-emerald-900 mb-1">CSU / RFD Directives:</div>';
+        csuRules.forEach(r => {
+          html += `<div class="flex items-start space-x-1.5 text-slate-700"><span class="text-emerald-600 font-bold">•</span><span>${escapeHtml(r)}</span></div>`;
+        });
+      }
+      if (sumRules.length > 0) {
+        html += `<div class="font-bold text-emerald-900 ${csuRules.length > 0 ? 'mt-2' : ''} mb-1">Summary Directives:</div>`;
+        sumRules.forEach(r => {
+          html += `<div class="flex items-start space-x-1.5 text-slate-700"><span class="text-emerald-600 font-bold">•</span><span>${escapeHtml(r)}</span></div>`;
+        });
+      }
+      if (!csuRules.length && !sumRules.length) {
+        html += '<div class="text-slate-500 italic">No custom rules parsed from feedback. Default baselines retained.</div>';
+      }
+
+      rulesList.innerHTML = html;
+      banner.classList.remove('hidden');
+
+      if (modalBody) {
+        modalBody.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  })
+  .catch(err => {
+    if (statusText) statusText.innerText = `Error applying rules: ${err.message}`;
+    if (applyBtn) {
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = `<span class="material-symbols-outlined text-[16px]">bolt</span><span>Retry Apply</span>`;
+      applyBtn.className = "inline-flex items-center space-x-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer";
+    }
+    alert("Error applying rules: " + err.message);
+  });
 }
 </script>
 {% endblock %}

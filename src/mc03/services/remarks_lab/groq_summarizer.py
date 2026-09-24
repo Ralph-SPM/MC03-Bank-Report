@@ -12,6 +12,7 @@ import httpx
 from dotenv import load_dotenv
 
 from mc03.services.remarks_lab.cleaner import clean_remark
+from mc03.services.remarks_lab.trimmer import ECA_HEADER_PATTERN
 
 # Ensure environment variables are loaded
 load_dotenv()
@@ -77,13 +78,17 @@ class GroqRemarksSummarizer:
         return f"{h}:{max_chars}:{is_retry}"
 
     def _build_prompt(self, text: str, max_chars: int, is_retry: bool) -> List[dict]:
-        clean_input = clean_remark(text).cleaned
+        # Ensure any ECA header prefix is cut out when sending to LLM to save tokens
+        text_str = text.strip()
+        eca_m = ECA_HEADER_PATTERN.match(text_str)
+        substantive_text = text_str[len(eca_m.group(1)):].strip() if eca_m else text_str
+        clean_input = clean_remark(substantive_text).cleaned
         if is_retry:
             system_prompt = (
                 f"You are an expert Data Analyst summarizing field collection notes for RCBC bank reports.\n"
                 f"Strict Rules:\n"
                 f"1. The previous summary was too long. Summarize more aggressively in concise Taglish or English.\n"
-                f"2. Keep ONLY: WHO was contacted and WHAT was stated/confirmed/promised.\n"
+                f"2. Keep WHAT was stated, confirmed, or observed. Do NOT prefix or include the borrower or user's name.\n"
                 f"3. Maximum total output length: strictly {max_chars} characters.\n"
                 f"4. Output ONLY the raw summary sentence. Do NOT include markdown, quotes, labels, or prefixes.\n"
                 f"5. Never include bank-prohibited tags: BCAL, BKAL, L3, INB, OBD, SRC, or phone numbers."
@@ -92,10 +97,11 @@ class GroqRemarksSummarizer:
             system_prompt = (
                 f"You are an expert Data Analyst summarizing field collection notes for RCBC bank reports.\n"
                 f"Strict Rules:\n"
-                f"1. Summarize the field note in concise Taglish or English preserving: WHO was contacted and WHAT was confirmed/promised.\n"
-                f"2. Maximum total output length: strictly {max_chars} characters.\n"
-                f"3. Output ONLY the raw summary sentence. Do NOT include markdown, quotes, labels, or prefixes.\n"
-                f"4. Never include bank-prohibited tags: BCAL, BKAL, L3, INB, OBD, SRC, or phone numbers."
+                f"1. Summarize the field note in concise Taglish or English preserving WHAT was confirmed or stated.\n"
+                f"2. Do NOT prefix or include the borrower or user's name; provide ONLY the summarized remark.\n"
+                f"3. Maximum total output length: strictly {max_chars} characters.\n"
+                f"4. Output ONLY the raw summary sentence. Do NOT include markdown, quotes, labels, or prefixes.\n"
+                f"5. Never include bank-prohibited tags: BCAL, BKAL, L3, INB, OBD, SRC, or phone numbers."
             )
 
         return [
@@ -106,6 +112,11 @@ class GroqRemarksSummarizer:
     def _clean_model_output(self, raw_output: str, max_chars: int) -> str:
         """Strip forbidden artifacts, quotes, prefixes, and enforce character limit."""
         out = raw_output.strip()
+        # Remove any echoed ECA header prefix if LLM hallucinates it
+        eca_m = ECA_HEADER_PATTERN.match(out)
+        if eca_m:
+            out = out[len(eca_m.group(1)):].strip()
+
         # Remove markdown bold/italics
         out = re.sub(r"[*_`]", "", out).strip()
         # Remove any lingering "Summary:" or "Field Report:" prefixes
@@ -137,6 +148,8 @@ class GroqRemarksSummarizer:
     ) -> Optional[str]:
         """
         Synchronous summarization call with caching, rate pacing, and backoff.
+        Cuts out ECA header before sending to LLM to save tokens, remembering the exact
+        header per remark to re-attach upon completion.
         Returns cleaned summary string or None on failure.
         """
         if not self.is_available or not text or not text.strip():
@@ -147,12 +160,25 @@ class GroqRemarksSummarizer:
             return None
 
         raw = text.strip()
-        if len(raw) <= max_chars and not is_retry_shorter:
-            return raw
 
-        c_key = self._cache_key(raw, max_chars, is_retry_shorter)
+        # 1. Dynamically remember exact ECA header per remark and cut it out to reduce LLM tokens
+        eca_match = ECA_HEADER_PATTERN.match(raw)
+        if eca_match:
+            remembered_header = eca_match.group(1)
+            raw_body = raw[len(remembered_header):].strip()
+        else:
+            remembered_header = ""
+            raw_body = raw
+
+        target_body_max = max(30, max_chars - len(remembered_header))
+
+        if len(raw_body) <= target_body_max and not is_retry_shorter:
+            return f"{remembered_header}{raw_body}".strip() if remembered_header else raw_body
+
+        c_key = self._cache_key(raw_body, target_body_max, is_retry_shorter)
         if c_key in self._cache:
-            return self._cache[c_key]
+            cached_body = self._cache[c_key]
+            return f"{remembered_header}{cached_body}".strip() if remembered_header else cached_body
 
         # Rate pacing for free tier sequential execution
         if not self.batch_processing and self._rate_pace_delay > 0:
@@ -164,7 +190,7 @@ class GroqRemarksSummarizer:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        messages = self._build_prompt(raw, max_chars, is_retry_shorter)
+        messages = self._build_prompt(raw_body, target_body_max, is_retry_shorter)
         payload = {
             "model": self.model,
             "messages": messages,
@@ -188,13 +214,24 @@ class GroqRemarksSummarizer:
                     choices = data.get("choices", [])
                     if choices:
                         content = choices[0].get("message", {}).get("content", "")
-                        cleaned_summary = self._clean_model_output(content, max_chars)
+                        cleaned_summary = self._clean_model_output(content, target_body_max)
                         if cleaned_summary:
                             self._cache[c_key] = cleaned_summary
-                            return cleaned_summary
+                            return f"{remembered_header}{cleaned_summary}".strip() if remembered_header else cleaned_summary
 
                 elif resp.status_code == 429:
-                    # Rate limit exceeded: activate cooldown so subsequent calls don't stall
+                    # Rate limit exceeded: retry if attempts remain, otherwise activate cooldown
+                    retry_after = 2.0 * (attempt + 1)
+                    try:
+                        if hasattr(resp, "headers") and "retry-after" in resp.headers:
+                            retry_after = float(resp.headers["retry-after"])
+                    except Exception:
+                        pass
+
+                    if attempt < max_retries:
+                        time.sleep(retry_after)
+                        continue
+
                     self._cooldown_until = time.time() + 60.0
                     return None
                 else:
@@ -214,23 +251,36 @@ class GroqRemarksSummarizer:
         max_chars: int = 140,
         is_retry_shorter: bool = False,
     ) -> Optional[str]:
-        """Asynchronous summarization call."""
+        """Asynchronous summarization call cutting ECA header to save tokens."""
         if not self.is_available or not text or not text.strip():
             return None
 
         raw = text.strip()
-        if len(raw) <= max_chars and not is_retry_shorter:
-            return raw
 
-        c_key = self._cache_key(raw, max_chars, is_retry_shorter)
+        # 1. Dynamically remember exact ECA header per remark and cut it out to reduce LLM tokens
+        eca_match = ECA_HEADER_PATTERN.match(raw)
+        if eca_match:
+            remembered_header = eca_match.group(1)
+            raw_body = raw[len(remembered_header):].strip()
+        else:
+            remembered_header = ""
+            raw_body = raw
+
+        target_body_max = max(30, max_chars - len(remembered_header))
+
+        if len(raw_body) <= target_body_max and not is_retry_shorter:
+            return f"{remembered_header}{raw_body}".strip() if remembered_header else raw_body
+
+        c_key = self._cache_key(raw_body, target_body_max, is_retry_shorter)
         if c_key in self._cache:
-            return self._cache[c_key]
+            cached_body = self._cache[c_key]
+            return f"{remembered_header}{cached_body}".strip() if remembered_header else cached_body
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        messages = self._build_prompt(raw, max_chars, is_retry_shorter)
+        messages = self._build_prompt(raw_body, target_body_max, is_retry_shorter)
         payload = {
             "model": self.model,
             "messages": messages,
@@ -253,10 +303,10 @@ class GroqRemarksSummarizer:
                     choices = data.get("choices", [])
                     if choices:
                         content = choices[0].get("message", {}).get("content", "")
-                        cleaned_summary = self._clean_model_output(content, max_chars)
+                        cleaned_summary = self._clean_model_output(content, target_body_max)
                         if cleaned_summary:
                             self._cache[c_key] = cleaned_summary
-                            return cleaned_summary
+                            return f"{remembered_header}{cleaned_summary}".strip() if remembered_header else cleaned_summary
 
                 elif resp.status_code == 429:
                     retry_after = 2.0 * (attempt + 1)

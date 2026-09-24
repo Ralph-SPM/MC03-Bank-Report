@@ -16,11 +16,12 @@ class TrimmedRemark:
     fits_within_200: bool
     was_truncated: bool
     preamble_stripped: bool
+    trim_method: str = "none"  # "none" | "llm" | "fallback"
 
 
 # Pattern to identify and preserve the ECA header e.g. ECA AUTO_S.P. MADRID_HOME_09/02/2026
 ECA_HEADER_PATTERN = re.compile(
-    r"^(ECA[\s_]+AUTO_[A-Za-z0-9._\s]+?_\d{1,2}/\d{1,2}/\d{2,4}\s*[-:]?\s*)",
+    r"^(ECA[\s_]+(?:AUTO[\s_]+)?[A-Za-z0-9._\s]+?[_ ]\d{1,4}[/.-]\d{1,2}[/.-]\d{2,4}\s*[-:–.]?\s*)",
     re.IGNORECASE
 )
 
@@ -50,6 +51,54 @@ def strip_preamble(text: str) -> tuple[str, bool]:
                 changed = True
                 break
     return working_text, any_stripped
+
+
+def strip_person_name(body: str, contact_person: str = "") -> str:
+    """
+    Strip borrower or contact person's name prefix from remark body.
+    E.g. 'LEYSON, JEANIE BARRACA - neg, according to agent...' -> 'neg, according to agent...'
+    E.g. 'CH: LEYSON, JEANIE BARRACA - neg...' -> 'neg...'
+    """
+    cleaned = body.strip()
+    if not cleaned:
+        return ""
+
+    c = contact_person.strip() if contact_person else ""
+
+    # 1. Direct match with contact_person if provided
+    if c and len(c) >= 3 and c.lower() not in ("self", "borrower", "cardholder", "ch", "na", "n/a", "none", "unknown"):
+        pat = r"^(?:(?:CH|CLIENT|BORROWER|MR\.|MS\.|MRS\.)\s*[:\-]?\s*)?" + re.escape(c) + r"\s*[-:–]\s*"
+        sub = re.sub(pat, "", cleaned, flags=re.IGNORECASE)
+        if sub != cleaned:
+            return sub.strip()
+
+        parts = [p.strip() for p in re.split(r"[, ]+", c) if p.strip()]
+        if len(parts) >= 2:
+            rev_c = f"{parts[-1]}, {' '.join(parts[:-1])}"
+            pat_rev = r"^(?:(?:CH|CLIENT|BORROWER|MR\.|MS\.|MRS\.)\s*[:\-]?\s*)?" + re.escape(rev_c) + r"\s*[-:–]\s*"
+            sub_rev = re.sub(pat_rev, "", cleaned, flags=re.IGNORECASE)
+            if sub_rev != cleaned:
+                return sub_rev.strip()
+
+    # 2. General Philippine/bank name pattern: 'LASTNAME, FIRSTNAME [MIDDLENAME] - '
+    name_pat = r"^(?:(?:CH|CLIENT|BORROWER|MR\.|MS\.|MRS\.)\s*[:\-]?\s*)?([A-Za-z\s.'-]+,\s*[A-Za-z\s.'-]+(?:\s+(?:JR\.?|SR\.?|III|II|IV))?)\s*[-:–]\s*"
+    match = re.match(name_pat, cleaned)
+    if match:
+        matched_name = match.group(1).strip()
+        non_names = ["positive", "negative", "visit", "address", "unit", "house", "field"]
+        if not any(nn in matched_name.lower() for nn in non_names):
+            return cleaned[match.end():].strip()
+
+    # 3. Pattern: 'FIRSTNAME LASTNAME - '
+    first_last_pat = r"^(?:(?:CH|CLIENT|BORROWER|MR\.|MS\.|MRS\.)\s*[:\-]?\s*)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\s*[-:–]\s*"
+    match_fl = re.match(first_last_pat, cleaned)
+    if match_fl:
+        matched_fl = match_fl.group(1).strip()
+        non_names = ["field visit", "visit result", "positive address", "negative unit", "house closed", "per agent"]
+        if not any(nn in matched_fl.lower() for nn in non_names):
+            return cleaned[match_fl.end():].strip()
+
+    return cleaned
 
 
 def deduplicate_phrases(text: str) -> str:
@@ -148,21 +197,19 @@ def fallback_clause_truncate(
 extract_core_sentence = fallback_clause_truncate
 
 
-def llm_trim_remark(
+def llm_trim_remark_with_method(
     cleaned_remark: str,
     llm_provider: Optional[Callable[[str, bool], Optional[str]]] = None,
     max_chars: int = 200,
     preferred_chars: int = 181,
-) -> str:
+) -> tuple[str, str]:
     """
-    LLM-based trimming step:
-      - Input: cleaned remark (tags/CH-codes/INB/OBD/SRC already stripped).
-      - Instruction: shorten to keep ONLY who was contacted and what was discussed; target ≤preferred_chars (max ≤max_chars).
-      - If output exceeds max_chars: retry once with an explicit 'shorter' instruction.
-      - Fallback: truncate at the last complete clause under max_chars.
+    LLM-based trimming step returning (trimmed_text, trim_method).
+    trim_method is 'llm' if shortened by LLM, 'fallback' if truncated by rule-based fallback,
+    or 'none' if text already fits.
     """
     if len(cleaned_remark) <= preferred_chars:
-        return cleaned_remark
+        return cleaned_remark, "none"
 
     if llm_provider is not None:
         try:
@@ -178,7 +225,7 @@ def llm_trim_remark(
             if trimmed and isinstance(trimmed, str):
                 trimmed = trimmed.strip()
                 if len(trimmed) <= max_chars:
-                    return trimmed
+                    return trimmed, "llm"
 
                 # 2. Retry once with explicit "shorter" instruction if > max_chars
                 if "max_chars" in params or len(params) >= 3:
@@ -189,26 +236,39 @@ def llm_trim_remark(
                 if shorter and isinstance(shorter, str):
                     shorter = shorter.strip()
                     if len(shorter) <= max_chars:
-                        return shorter
-                    return fallback_clause_truncate(shorter, max_chars=max_chars, preferred_chars=preferred_chars)
+                        return shorter, "llm"
+                    return fallback_clause_truncate(shorter, max_chars=max_chars, preferred_chars=preferred_chars), "fallback"
         except Exception:
             pass  # Fallback gracefully to demo-safety clause truncation
 
     # Fallback path: truncate at last complete clause under max_chars
-    return fallback_clause_truncate(cleaned_remark, max_chars=max_chars, preferred_chars=preferred_chars)
+    return fallback_clause_truncate(cleaned_remark, max_chars=max_chars, preferred_chars=preferred_chars), "fallback"
+
+
+def llm_trim_remark(
+    cleaned_remark: str,
+    llm_provider: Optional[Callable[[str, bool], Optional[str]]] = None,
+    max_chars: int = 200,
+    preferred_chars: int = 181,
+) -> str:
+    """Backward-compatible wrapper returning only the trimmed string."""
+    return llm_trim_remark_with_method(cleaned_remark, llm_provider, max_chars, preferred_chars)[0]
 
 
 def trim_and_format(
     text: str,
     contact_person: str = "",
     llm_provider: Optional[Callable[[str, bool], Optional[str]]] = None,
+    strip_name: bool = True,
 ) -> TrimmedRemark:
     """
     Formats remark for bank upload compliance (≤200 chars, ≤181 preferred):
     - Retains the 'ECA AUTO_S.P. MADRID_HOME_mm/dd/yyyy' header intact at the beginning.
     - Cleans redundant internal prefixes and duplicate repeating phrases from the body.
+    - Strips borrower/contact person name from body when strip_name=True.
     - Shortens the body using LLM-based trimming (with clause-boundary safety fallback)
       so the total length (ECA header + body) strictly adheres to the 200-char ceiling.
+    - Explicitly records trim_method ("none" | "llm" | "fallback").
     - Applies to both field-result remarks and DRR/call remarks.
     """
     text_str = str(text).strip() if text is not None else ""
@@ -221,6 +281,7 @@ def trim_and_format(
             fits_within_200=True,
             was_truncated=False,
             preamble_stripped=False,
+            trim_method="none",
         )
 
     original_length = len(text_str)
@@ -237,13 +298,20 @@ def trim_and_format(
     # 2. Strip redundant internal collector prefixes from body
     working_body, preamble_stripped = strip_preamble(body)
 
-    # 3. Deduplicate repeating phrases in body
+    # 3. Strip borrower / contact person's name from remark body
+    if strip_name:
+        before_name_strip = working_body
+        working_body = strip_person_name(working_body, c_person)
+        if working_body != before_name_strip:
+            preamble_stripped = True
+
+    # 4. Deduplicate repeating phrases in body
     deduped = deduplicate_phrases(working_body)
     if deduped:
         working_body = deduped
 
-    # 4. If contact person is provided, try domain join
-    if c_person:
+    # 5. Optional domain join only if explicitly requested with strip_name=False
+    if not strip_name and c_person:
         joined, fits = trim_to_200(c_person, working_body)
         if fits and (len(eca_header) + len(joined)) <= 200:
             final_res = f"{eca_header}{joined}".strip() if eca_header else joined
@@ -254,6 +322,7 @@ def trim_and_format(
                 fits_within_200=True,
                 was_truncated=(original_length > 200 or len(working_body) > 200),
                 preamble_stripped=preamble_stripped,
+                trim_method="none",
             )
 
     # 5. Check if ECA header + body already fits within 200 chars
@@ -266,12 +335,13 @@ def trim_and_format(
             fits_within_200=True,
             was_truncated=(original_length > 200 or preamble_stripped or len(combined_candidate) < original_length),
             preamble_stripped=preamble_stripped,
+            trim_method="none",
         )
 
     # 6. LLM-based trimming step with retry and clause-level safety fallback on body
     avail_max = max(30, 200 - len(eca_header))
     avail_pref = max(30, 181 - len(eca_header))
-    trimmed_body = llm_trim_remark(
+    trimmed_body, trim_method = llm_trim_remark_with_method(
         working_body,
         llm_provider=llm_provider,
         max_chars=avail_max,
@@ -281,6 +351,7 @@ def trim_and_format(
     final_trimmed = f"{eca_header}{trimmed_body}".strip() if eca_header else trimmed_body
     if len(final_trimmed) > 200:
         final_trimmed = fallback_clause_truncate(final_trimmed, max_chars=200, preferred_chars=181)
+        trim_method = "fallback"
 
     return TrimmedRemark(
         trimmed_text=final_trimmed,
@@ -289,4 +360,5 @@ def trim_and_format(
         fits_within_200=True,
         was_truncated=True,
         preamble_stripped=preamble_stripped,
+        trim_method=trim_method,
     )

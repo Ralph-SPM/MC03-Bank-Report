@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import io
 import ipaddress
+import json
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
 
+import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import UploadFile
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -28,6 +30,7 @@ from mc03.services.archive import ArchiveError, build_encrypted_archive
 from mc03.services.extraction_gateway import ExtractionGateway
 from mc03.services.orchestrator import process_run
 from mc03.services.remarks_lab import RemarksLabPipeline, GroqRemarksSummarizer
+from engine.summarizer import TwoTierRemarksSummarizer, get_summarizer
 from mc03.services.rendering import RenderError, render_workbooks
 from mc03.settings import RuntimeSettings, load_runtime_settings
 
@@ -521,7 +524,9 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
     @app.get("/remarks-lab", response_class=HTMLResponse)
     async def remarks_lab_view(request: Request) -> Response:
         """Render the Remarks Intelligence Lab upload form or cached analysis."""
-        summarizer = GroqRemarksSummarizer()
+        two_tier = get_summarizer()
+        raw_test_mode = request.query_params.get("test_mode", "").lower()
+        test_mode = raw_test_mode in ("true", "1", "on", "yes")
         return templates.TemplateResponse(
             request,
             "remarks_lab.html",
@@ -531,9 +536,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 "report": None,
                 "date_from": request.query_params.get("date_from", ""),
                 "date_to": request.query_params.get("date_to", ""),
-                "groq_configured": summarizer.is_available,
-                "groq_model": summarizer.model,
-                "groq_batch": summarizer.batch_processing,
+                "test_mode": test_mode,
+                "run_ai": True,
+                "litellm_configured": two_tier.is_available,
+                "model_tagalog": two_tier.model_tagalog,
+                "model_english": two_tier.model_english,
+                "groq_configured": two_tier.is_available,
+                "groq_model": f"{two_tier.model_tagalog} / {two_tier.model_english}",
+                "groq_batch": True,
             },
         )
 
@@ -546,9 +556,17 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
         raw_date_to = _form_str(form.get("date_to"))
         date_from = _parse_iso_date(raw_date_from)
         date_to = _parse_iso_date(raw_date_to)
+        raw_test_mode = form.get("test_mode")
+        test_mode = str(raw_test_mode).lower() in ("true", "1", "on", "yes")
+        raw_run_ai = form.get("run_ai")
+        run_ai = str(raw_run_ai).lower() in ("true", "1", "on", "yes")
 
-        summarizer = GroqRemarksSummarizer()
-        if not isinstance(workbook_upload, UploadFile):
+        two_tier = get_summarizer()
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
             return templates.TemplateResponse(
                 request,
                 "remarks_lab.html",
@@ -558,10 +576,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                     "report": None,
                     "date_from": raw_date_from,
                     "date_to": raw_date_to,
-                    "error": "Please provide a valid Excel workbook (.xlsx).",
-                    "groq_configured": summarizer.is_available,
-                    "groq_model": summarizer.model,
-                    "groq_batch": summarizer.batch_processing,
+                    "test_mode": test_mode,
+                    "error": "Please provide a valid Excel workbook (.xlsx, .xls) or Test Mode CSV (.csv).",
+                    "litellm_configured": two_tier.is_available,
+                    "model_tagalog": two_tier.model_tagalog,
+                    "model_english": two_tier.model_english,
+                    "groq_configured": two_tier.is_available,
+                    "groq_model": f"{two_tier.model_tagalog} / {two_tier.model_english}",
+                    "groq_batch": True,
                 },
                 status_code=400,
             )
@@ -577,17 +599,21 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                     "report": None,
                     "date_from": raw_date_from,
                     "date_to": raw_date_to,
+                    "test_mode": test_mode,
                     "error": "The uploaded file is empty.",
-                    "groq_configured": summarizer.is_available,
-                    "groq_model": summarizer.model,
-                    "groq_batch": summarizer.batch_processing,
+                    "litellm_configured": two_tier.is_available,
+                    "model_tagalog": two_tier.model_tagalog,
+                    "model_english": two_tier.model_english,
+                    "groq_configured": two_tier.is_available,
+                    "groq_model": f"{two_tier.model_tagalog} / {two_tier.model_english}",
+                    "groq_batch": True,
                 },
                 status_code=400,
             )
 
         try:
-            pipeline = RemarksLabPipeline(summarizer=summarizer)
-            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to)
+            pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
+            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=test_mode, run_ai=run_ai)
         except Exception as exc:
             import traceback
             traceback.print_exc()
@@ -600,10 +626,15 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                     "report": None,
                     "date_from": raw_date_from,
                     "date_to": raw_date_to,
+                    "test_mode": test_mode,
+                    "run_ai": run_ai,
                     "error": f"Failed to process workbook ({type(exc).__name__}): {exc}",
-                    "groq_configured": summarizer.is_available,
-                    "groq_model": summarizer.model,
-                    "groq_batch": summarizer.batch_processing,
+                    "litellm_configured": two_tier.is_available,
+                    "model_tagalog": two_tier.model_tagalog,
+                    "model_english": two_tier.model_english,
+                    "groq_configured": two_tier.is_available,
+                    "groq_model": f"{two_tier.model_tagalog} / {two_tier.model_english}",
+                    "groq_batch": True,
                 },
                 status_code=400,
             )
@@ -617,9 +648,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 "report": report,
                 "date_from": raw_date_from,
                 "date_to": raw_date_to,
-                "groq_configured": summarizer.is_available,
-                "groq_model": summarizer.model,
-                "groq_batch": summarizer.batch_processing,
+                "test_mode": test_mode,
+                "run_ai": run_ai,
+                "litellm_configured": two_tier.is_available,
+                "model_tagalog": two_tier.model_tagalog,
+                "model_english": two_tier.model_english,
+                "groq_configured": two_tier.is_available,
+                "groq_model": f"{two_tier.model_tagalog} / {two_tier.model_english}",
+                "groq_batch": True,
             },
         )
 
@@ -632,16 +668,22 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
         raw_date_to = _form_str(form.get("date_to"))
         date_from = _parse_iso_date(raw_date_from)
         date_to = _parse_iso_date(raw_date_to)
+        raw_test_mode = form.get("test_mode")
+        test_mode = str(raw_test_mode).lower() in ("true", "1", "on", "yes")
 
-        if not isinstance(workbook_upload, UploadFile):
-            return PlainTextResponse("Please provide an Excel file (.xlsx)", status_code=400)
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
+            return PlainTextResponse("Please provide an Excel file (.xlsx, .xls) or CSV (.csv)", status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
             return PlainTextResponse("File is empty", status_code=400)
 
         pipeline = RemarksLabPipeline()
-        report = pipeline.process_file(contents, date_from=date_from, date_to=date_to)
+        report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=test_mode)
         output_buffer = pipeline.export_to_excel(report)
 
         filename = f"RCBC_FIELD_EVALUATED_{date_from.strftime('%Y%m%d') if date_from else 'ALL'}.xlsx"
@@ -651,7 +693,262 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    @app.post("/remarks-lab/finetune-prompt")
+    async def remarks_lab_finetune_prompt(request: Request) -> Response:
+        """
+        Analyze human reviewer feedback on remarks and use AI to decide how
+        to fine-tune the LLM summarization prompt.
+        """
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
+
+        items = payload.get("items", [])
+        valid_items = [
+            it for it in items
+            if isinstance(it, dict) and str(it.get("feedback", "")).strip()
+        ]
+
+        if not valid_items:
+            return JSONResponse({
+                "error": "No feedback provided. Please enter feedback for at least one row."
+            }, status_code=400)
+
+        summarizer = GroqRemarksSummarizer()
+
+        feedback_digest = "\n".join([
+            f"Example #{idx + 1} (Row: #{it.get('row_index', idx + 1)}, Acct: {it.get('account_number', 'N/A')}):\n"
+            f"  Raw Remark: {it.get('raw_remarks', '')}\n"
+            f"  Current Cleaned Remark: {it.get('cleaned_remarks', '')}\n"
+            f"  Reviewer Feedback / Correction: {it.get('feedback', '')}\n"
+            for idx, it in enumerate(valid_items)
+        ])
+
+        current_system_prompt = (
+            "You are an expert Data Analyst summarizing field collection notes for RCBC bank reports.\n"
+            "Strict Rules:\n"
+            "1. Summarize the field note in concise Taglish or English preserving WHAT was confirmed or stated.\n"
+            "2. Do NOT prefix or include the borrower or user's name; provide ONLY the summarized remark.\n"
+            "3. Maximum total output length: strictly 140 characters.\n"
+            "4. Output ONLY the raw summary sentence. Do NOT include markdown, quotes, labels, or prefixes.\n"
+            "5. Never include bank-prohibited tags: BCAL, BKAL, L3, INB, OBD, SRC, or phone numbers."
+        )
+
+        meta_prompt = (
+            f"You are an AI Prompt Optimization and Fine-Tuning Specialist for banking collection remarks summarization.\n"
+            f"A human reviewer has reviewed the current AI summaries and provided specific feedback/corrections on {len(valid_items)} rows.\n\n"
+            f"CURRENT SYSTEM PROMPT:\n\"\"\"\n{current_system_prompt}\n\"\"\"\n\n"
+            f"REVIEWER FEEDBACK EXAMPLES:\n{feedback_digest}\n\n"
+            f"TASK:\n"
+            f"1. Diagnose the Systematic Issues: What common pitfalls or unmet expectations did the reviewer point out?\n"
+            f"2. Recommended Prompt Adjustments: What specific rules or guardrails must be added, removed, or emphasized?\n"
+            f"3. Proposed Fine-Tuned System Prompt: Provide the exact full text for the new, fine-tuned System Prompt that incorporates this feedback.\n\n"
+            f"Structure your response clearly with markdown headings:\n"
+            f"### 1. Systematic Feedback Diagnosis\n"
+            f"### 2. Rule & Guardrail Adjustments\n"
+            f"### 3. Proposed Fine-Tuned System Prompt\n"
+        )
+
+        if summarizer.is_available:
+            try:
+                headers = {
+                    "Authorization": f"Bearer {summarizer.api_key}",
+                    "Content-Type": "application/json",
+                }
+                groq_payload = {
+                    "model": summarizer.model,
+                    "messages": [
+                        {"role": "system", "content": "You are a prompt engineering and LLM fine-tuning expert specializing in banking data processing."},
+                        {"role": "user", "content": meta_prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1024,
+                }
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.post(
+                        f"{summarizer.base_url}/chat/completions",
+                        headers=headers,
+                        json=groq_payload,
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    ai_analysis = choices[0].get("message", {}).get("content", "") if choices else ""
+                else:
+                    ai_analysis = _generate_heuristic_finetune(
+                        valid_items, current_system_prompt, api_error=f"HTTP {resp.status_code}: {resp.text}"
+                    )
+            except Exception as e:
+                ai_analysis = _generate_heuristic_finetune(valid_items, current_system_prompt, api_error=str(e))
+        else:
+            ai_analysis = _generate_heuristic_finetune(valid_items, current_system_prompt)
+
+        structured_rules = _extract_structured_rules(valid_items)
+
+        return JSONResponse({
+            "total_feedback_items": len(valid_items),
+            "ai_analysis": ai_analysis,
+            "csu_rfd_rules": structured_rules["csu_rfd_rules"],
+            "summary_rules": structured_rules["summary_rules"],
+            "items_processed": valid_items,
+        })
+
+    @app.post("/remarks-lab/apply-rules")
+    async def remarks_lab_apply_rules(request: Request) -> Response:
+        """
+        Persist reviewer-tuned CSU/RFD and summary rules into custom_prompt_rules.json
+        to immediately apply them to active LLM models.
+        """
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
+
+        csu_rfd_rules = payload.get("csu_rfd_rules", [])
+        summary_rules = payload.get("summary_rules", [])
+        if not isinstance(csu_rfd_rules, list):
+            csu_rfd_rules = []
+        if not isinstance(summary_rules, list):
+            summary_rules = []
+
+        cleaned_csu_rfd = [str(r).strip() for r in csu_rfd_rules if str(r).strip()]
+        cleaned_summary = [str(r).strip() for r in summary_rules if str(r).strip()]
+
+        data_to_store = {
+            "csu_rfd_rules": cleaned_csu_rfd,
+            "summary_rules": cleaned_summary,
+            "last_updated": datetime.now(timezone.utc).isoformat(),
+        }
+
+        target_path = Path("storage/custom_prompt_rules.json")
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(data_to_store, f, indent=2, ensure_ascii=False)
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Custom prompt rules saved and applied to active models.",
+            "applied_rules": data_to_store,
+        })
+
     return app
+
+
+def _extract_structured_rules(items: list[dict]) -> dict[str, list[str]]:
+    """Synthesize actionable CSU/RFD and summary rules from reviewer feedback items."""
+    csu_rfd_rules: list[str] = []
+    summary_rules: list[str] = []
+
+    for it in items:
+        fb = str(it.get("feedback", "")).strip()
+        if not fb:
+            continue
+        fb_lower = fb.lower()
+
+        # Rule extraction for CSU/RFD
+        if "representative refused" in fb_lower:
+            r = "Use 'REPRESENTATIVE REFUSED TO DISCLOSE RFD' when contact was with representative and no explicit hardship was disclosed."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+        if "borrower refused" in fb_lower:
+            r = "Use 'BORROWER REFUSED TO DISCLOSE RFD' when contact was with borrower directly and no explicit hardship was disclosed."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+        if "impound" in fb_lower:
+            r = "Never output 'Unit Impounded'; always classify as 'LTO APPREHENSION/NO ORCR/HPG'."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+        if "moved out" in fb_lower:
+            r = "Use 'MOVED OUT' only if explicitly confirmed that borrower previously lived there but relocated."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+        if "empty" in fb_lower and ("rfd" in fb_lower or "unknown" in fb_lower):
+            r = "Leave RFD empty (\"\") if zero information was gathered or borrower is unknown in the area."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+        if "no client" in fb_lower or "not around" in fb_lower:
+            r = "Use 'NO CLIENT/ REPRESENTATIVE' only if client resides there but was not around during visit."
+            if r not in csu_rfd_rules:
+                csu_rfd_rules.append(r)
+
+        # If feedback directly provides a specific instruction regarding RFD or CSU
+        if any(term in fb_lower for term in ("rfd", "csu", "refused", "disclose", "positive", "negative", "recon")) and len(fb) <= 160:
+            clean_fb = fb.strip(" .\"'")
+            if clean_fb and clean_fb not in csu_rfd_rules:
+                csu_rfd_rules.append(clean_fb)
+
+        # Rule extraction for Summary
+        if any(w in fb_lower for w in ("short", "length", "char", "overflow", "limit")):
+            r = "Restrict sentence length to strictly 100-120 characters."
+            if r not in summary_rules:
+                summary_rules.append(r)
+        if any(w in fb_lower for w in ("name", "borrower", "agent", "ch")):
+            r = "Never include borrower, collector, or agent names in the summary."
+            if r not in summary_rules:
+                summary_rules.append(r)
+        if any(w in fb_lower for w in ("date", "amount", "ptp", "pay", "pesos", "peso")):
+            r = "Preserve exact payment dates and promise amounts."
+            if r not in summary_rules:
+                summary_rules.append(r)
+        if any(w in fb_lower for w in ("car", "unit", "vehicle", "plate", "garage")):
+            r = "Ensure vehicle presence/status is prominently preserved."
+            if r not in summary_rules:
+                summary_rules.append(r)
+
+    if not summary_rules:
+        summary_rules.append("Condense narrative into a single high-density fact-based sentence under 140 chars.")
+
+    return {
+        "csu_rfd_rules": csu_rfd_rules,
+        "summary_rules": summary_rules,
+    }
+
+
+def _generate_heuristic_finetune(items: list[dict], current_prompt: str, api_error: str | None = None) -> str:
+    """Generate structured prompt fine-tuning guidance when LLM API is offline or returns error."""
+    feedback_texts = [str(it.get("feedback", "")).strip() for it in items]
+    summary_bullets_list = []
+    for idx, it in enumerate(items[:6]):
+        row_ref = it.get("row_index")
+        row_label = f"Row #{row_ref}" if row_ref else f"Row #{idx + 1}"
+        acct = it.get("account_number")
+        acct_label = f" (Acct: {acct})" if acct else ""
+        summary_bullets_list.append(f"- {row_label}{acct_label}: \"{it.get('feedback', '')}\"")
+    summary_bullets = "\n".join(summary_bullets_list)
+
+    extra_rules = []
+    combined_fb = " ".join(feedback_texts).lower()
+    if any(w in combined_fb for w in ("short", "length", "char", "cut", "overflow", "limit")):
+        extra_rules.append("- Stricter Length Cap: Restrict sentence length to strictly 100-120 chars to guarantee maximum safety margin under 200 chars.")
+    if any(w in combined_fb for w in ("name", "borrower", "client", "agent", "ch")):
+        extra_rules.append("- Strict Name Prohibition: Absolutely remove any mention of person names (borrower, agent, caller, or relative names).")
+    if any(w in combined_fb for w in ("date", "amount", "ptp", "pay", "pesos", "peso", "when")):
+        extra_rules.append("- Concrete Financial Facts: Prioritize keeping exact dates, amounts, and explicit settlement promises over background descriptions.")
+    if any(w in combined_fb for w in ("car", "unit", "vehicle", "plate", "garage", "status")):
+        extra_rules.append("- Vehicle Condition/Location: Ensure presence/absence of vehicle (e.g. unit in garage, flooded, impounded) is prominently preserved.")
+    if not extra_rules:
+        extra_rules.append("- Concise Outcome Structure: Condense narrative into a single high-density fact-based sentence.")
+
+    rules_text = "\n".join(extra_rules)
+    note = f"> [!NOTE]\n> Generated via local rule synthesis (Groq API error: {api_error})\n\n" if api_error else ""
+
+    return (
+        f"{note}### 1. Systematic Feedback Diagnosis\n"
+        f"Analyzed {len(items)} reviewer feedback item(s):\n{summary_bullets}\n\n"
+        f"### 2. Rule & Guardrail Adjustments\n"
+        f"{rules_text}\n\n"
+        f"### 3. Proposed Fine-Tuned System Prompt\n"
+        f"```text\n"
+        f"You are an expert Data Analyst summarizing field collection notes for RCBC bank reports.\n"
+        f"Strict Rules:\n"
+        f"1. Summarize the field note in concise Taglish or English preserving WHAT was confirmed, promised, or observed.\n"
+        f"2. Never include borrower or agent names, phone numbers, or bank-prohibited tags (BCAL, BKAL, L3, INB, OBD, SRC).\n"
+        f"3. Maximum output length: strictly 120 characters.\n"
+        f"4. User Feedback Directives: {'; '.join(extra_rules)}.\n"
+        f"5. Output ONLY the raw summary sentence with no markdown, quotes, labels, or prefixes.\n"
+        f"```"
+    )
 
 
 __all__ = [

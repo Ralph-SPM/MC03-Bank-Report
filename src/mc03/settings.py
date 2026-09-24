@@ -64,6 +64,12 @@ class RuntimeSettings(BaseSettings):
     groq_model: str | None = None
     groq_batch_processing: str | None = None
     groq_request_timeout: str | None = None
+    litellm_base_url: str | None = None
+    litellm_api_key: str | None = None
+    model_tagalog: str | None = None
+    model_english: str | None = None
+    litellm_max_concurrency: str | None = None
+    litellm_request_timeout: str | None = None
 
     def __init__(self, **values: Any) -> None:
         """Preserve the storage-boundary exception at the startup API."""

@@ -10,6 +10,7 @@ import pandas as pd
 
 
 from datetime import date, datetime
+import re
 
 
 @dataclass
@@ -28,14 +29,26 @@ class RawRemarkRow:
     client_status: str = ""
     unit_status: str = ""
     raw_message: str = ""
+    final_remarks: str = ""
+    evaluated_csu: str = ""
+    evaluated_rfd: str = ""
+    evaluated_detailed_rfd: str = ""
+    evaluated_csu_why: str = ""
+    evaluated_rfd_why: str = ""
 
 
 class ParsedRows(list):
-    """List of RawRemarkRow that also tracks total rows before date filtering."""
+    """List of RawRemarkRow that also tracks total rows before date filtering and evaluation state."""
     total_unfiltered_rows: int = 0
+    is_already_evaluated: bool = False
+    has_manual_csu: bool = False
+    has_manual_rfd: bool = False
 
 
 COLUMN_ALIASES = {
+    "row_index": [
+        "row index", "row_index", "row #", "row_num", "row", "idx"
+    ],
     "account_number": [
         "account number", "account_number", "acct no", "acct_no", "acct#", "account_no",
         "account", "loan account no", "loan_account_no", "acct", "loan no", "account_num"
@@ -51,17 +64,25 @@ COLUMN_ALIASES = {
         "contact relation", "contact_relation", "relation", "relationship", "relation to ch",
         "contact's relation", "contact relation to borrower"
     ],
+    "final_remarks": [
+        "final remarks", "final remark", "final_remarks", "final_remark",
+        "final remarks_1", "final_remarks_1", "finalremarks"
+    ],
     "remarks": [
-        "remarks", "field remarks", "raw remarks", "statement", "collector remarks",
+        "raw remark", "raw_remark", "raw remarks", "raw_remarks",
+        "final remarks", "final remark", "remarks", "field remarks", "statement", "collector remarks",
         "field result remarks", "field notes", "result remarks", "notes", "remark",
         "sanitized_remark", "sanitized remark", "remark_text"
     ],
     "manual_csu": [
-        "collection status update", "collection status", "manual csu", "manual_csu",
-        "csu status", "csu result", "csu code", "da csu", "csu_rank", "csu rank", "csu", "status"
+        "original csu", "original_csu", "original collection status update", "da csu",
+        "collection status update", "collection status update agent/admin",
+        "collection status update\nagent/admin", "collection status", "manual csu", "manual_csu",
+        "csu status", "csu result", "csu code", "csu_rank", "csu rank", "csu"
     ],
     "manual_rfd": [
-        "manual rfd", "manual_rfd", "rfd", "rfd code", "rfd result", "da rfd",
+        "original rfd", "original_rfd", "da rfd",
+        "manual rfd", "manual_rfd", "rfd", "rfd code", "rfd result",
         "reason for default", "selected_rfd", "selected rfd"
     ],
     "client_status": [
@@ -71,7 +92,7 @@ COLUMN_ALIASES = {
         "unit status", "unit_status", "unit status_1"
     ],
     "raw_message": [
-        "message", "raw_message", "collector_message", "field_message", "raw message"
+        "raw remark", "raw_remark", "raw remarks", "message", "raw_message", "collector_message", "field_message", "raw message"
     ],
     "date": [
         "visit_date", "visit date", "visit_datetime", "call date", "call_date", "date",
@@ -83,23 +104,30 @@ COLUMN_ALIASES = {
 
 
 def _find_column_match(columns: list[str], alias_key: str) -> Optional[str]:
-    """Find matching column name case-insensitively using aliases, prioritizing exact matches then substring matches."""
+    """Find matching column name case-insensitively using aliases, prioritizing exact matches then word/boundary matches."""
     normalized_cols = {str(c).strip().lower(): c for c in columns if c is not None}
     # 1. Exact match check against aliases
     for alias in COLUMN_ALIASES.get(alias_key, []):
         a_low = alias.lower()
         if a_low in normalized_cols:
             return normalized_cols[a_low]
-    # 2. Substring match for alias within header
+    # 2. Token / word-boundary match for alias within header
     for alias in COLUMN_ALIASES.get(alias_key, []):
         a_low = alias.lower()
         if len(a_low) > 3:  # avoid short alias false positives like 'ch' or 'csu'
+            pat = re.compile(rf"(?:\b|_){re.escape(a_low)}(?:\b|_)", re.IGNORECASE)
             for norm, original in normalized_cols.items():
-                if a_low in norm:
+                if pat.search(norm):
+                    # Guard: "date" must never match "update" unless "update date"
+                    if alias_key == "date" and "update" in norm and not re.search(r"(?:\b|_)(?:visit|call|trans|report|endorsement|created)?_?date(?:\b|_)", norm):
+                        continue
                     return original
     # 3. Fallback check for alias_key
+    pat_key = re.compile(rf"(?:\b|_){re.escape(alias_key.replace('_', ' '))}(?:\b|_)", re.IGNORECASE)
     for norm, original in normalized_cols.items():
-        if alias_key.replace("_", " ") in norm:
+        if pat_key.search(norm):
+            if alias_key == "date" and "update" in norm and not re.search(r"(?:\b|_)(?:visit|call|trans|report|endorsement|created)?_?date(?:\b|_)", norm):
+                continue
             return original
     return None
 
@@ -163,6 +191,7 @@ def parse_field_result_sheet(
     source: str | Path | bytes | io.BytesIO,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    test_mode: bool = False,
 ) -> ParsedRows:
     """
     Parse the RCBC workbook targeting the FIELD RSULT (or similar) sheet.
@@ -170,39 +199,69 @@ def parse_field_result_sheet(
     Supports metadata header offsets (e.g., Output_Mapping_Regions=A2:H10 on row 1),
     duplicate column names, flexible column aliases, and optional date-window filtering.
     """
-    if isinstance(source, (str, Path)):
-        excel_file = pd.ExcelFile(source)
+    is_csv = False
+    raw_bytes: Optional[bytes] = None
+    if isinstance(source, bytes):
+        raw_bytes = source
+    elif isinstance(source, io.BytesIO):
+        raw_bytes = source.getvalue()
+    elif isinstance(source, (str, Path)):
+        if str(source).lower().endswith(".csv"):
+            is_csv = True
+        with open(source, "rb") as f:
+            raw_bytes = f.read()
+
+    # If raw_bytes does not start with Excel signatures, detect as CSV
+    if raw_bytes is not None and not is_csv:
+        if not (raw_bytes.startswith(b"PK\x03\x04") or raw_bytes.startswith(b"\xd0\xcf\x11\xe0")):
+            is_csv = True
+
+    df_raw = pd.DataFrame()
+    if is_csv:
+        for enc in ("utf-8-sig", "utf-8", "latin1", "cp1252"):
+            try:
+                df_raw = pd.read_csv(io.BytesIO(raw_bytes), encoding=enc, header=None)
+                break
+            except Exception:
+                continue
+        if df_raw.empty and raw_bytes:
+            df_raw = pd.read_csv(io.BytesIO(raw_bytes), header=None)
     else:
-        if isinstance(source, bytes):
-            source = io.BytesIO(source)
-        excel_file = pd.ExcelFile(source)
+        excel_source = io.BytesIO(raw_bytes) if raw_bytes is not None else source
+        try:
+            engine = "openpyxl" if (raw_bytes and raw_bytes.startswith(b"PK\x03\x04")) else None
+            excel_file = pd.ExcelFile(excel_source, engine=engine) if engine else pd.ExcelFile(excel_source)
+            target_sheet = None
+            sheet_names = excel_file.sheet_names
 
-    target_sheet = None
-    sheet_names = excel_file.sheet_names
+            preferred = ["FIELD RSULT", "FIELD RESULT", "FIELD_RESULT", "FIELD RESULTS", "FIELD_RSULT"]
+            for pref in preferred:
+                for s in sheet_names:
+                    if s.strip().upper() == pref.upper():
+                        target_sheet = s
+                        break
+                if target_sheet:
+                    break
 
-    # Priority sheet name matching
-    preferred = ["FIELD RSULT", "FIELD RESULT", "FIELD_RESULT", "FIELD RESULTS", "FIELD_RSULT"]
-    for pref in preferred:
-        for s in sheet_names:
-            if s.strip().upper() == pref.upper():
-                target_sheet = s
-                break
-        if target_sheet:
-            break
+            if not target_sheet:
+                for s in sheet_names:
+                    if "FIELD" in s.strip().upper():
+                        target_sheet = s
+                        break
 
-    if not target_sheet:
-        # Fallback search for sheet containing 'FIELD'
-        for s in sheet_names:
-            if "FIELD" in s.strip().upper():
-                target_sheet = s
-                break
+            if not target_sheet:
+                target_sheet = sheet_names[0]
 
-    if not target_sheet:
-        # Fallback to first sheet
-        target_sheet = sheet_names[0]
+            df_raw = excel_file.parse(sheet_name=target_sheet, header=None)
+        except Exception:
+            is_csv = True
+            for enc in ("utf-8-sig", "utf-8", "latin1", "cp1252"):
+                try:
+                    df_raw = pd.read_csv(io.BytesIO(raw_bytes), encoding=enc, header=None)
+                    break
+                except Exception:
+                    pass
 
-    # Parse raw without header to discover true header row offset
-    df_raw = excel_file.parse(sheet_name=target_sheet, header=None)
     if df_raw.empty:
         return ParsedRows()
 
@@ -238,6 +297,7 @@ def parse_field_result_sheet(
         "ch_code": _find_column_match(df.columns, "ch_code"),
         "contact_person": _find_column_match(df.columns, "contact_person"),
         "contact_relation": _find_column_match(df.columns, "contact_relation"),
+        "final_remarks": _find_column_match(df.columns, "final_remarks"),
         "remarks": _find_column_match(df.columns, "remarks"),
         "manual_csu": _find_column_match(df.columns, "manual_csu"),
         "manual_rfd": _find_column_match(df.columns, "manual_rfd"),
@@ -245,15 +305,39 @@ def parse_field_result_sheet(
         "client_status": _find_column_match(df.columns, "client_status"),
         "unit_status": _find_column_match(df.columns, "unit_status"),
         "raw_message": _find_column_match(df.columns, "raw_message"),
+        "row_index": _find_column_match(df.columns, "row_index"),
     }
 
     # Fallback search for date column if not matched via aliases
     if not col_map.get("date"):
         for c in df.columns:
-            c_low = str(c).lower()
-            if "date" in c_low or "time" in c_low:
+            c_low = str(c).strip().lower()
+            if "update" in c_low and not re.search(r"(?:\b|_)date(?:\b|_)", c_low):
+                continue
+            if re.search(r"(?:\b|_)(?:visit_date|report_date|trans_date|call_date|date|datetime|timestamp)(?:\b|_)", c_low):
                 col_map["date"] = c
                 break
+
+    # Detect evaluated columns from exported test CSV
+    for c in df.columns:
+        c_clean = str(c).strip().lower()
+        if c_clean in ("collection status update", "evaluated csu", "evaluated_csu", "model csu", "predicted csu"):
+            col_map["evaluated_csu"] = c
+        elif c_clean in ("rfd", "evaluated rfd", "evaluated_rfd", "model rfd", "predicted rfd"):
+            col_map["evaluated_rfd"] = c
+        elif c_clean in ("detailed rfd", "detailed_rfd", "evaluated detailed rfd"):
+            col_map["evaluated_detailed_rfd"] = c
+        elif c_clean in ("csu why", "csu_why", "csu reasoning", "csu_reasoning", "why csu"):
+            col_map["evaluated_csu_why"] = c
+        elif c_clean in ("rfd why", "rfd_why", "rfd reasoning", "rfd_reasoning", "why rfd"):
+            col_map["evaluated_rfd_why"] = c
+
+    # File is considered already evaluated if it has both original ground truth AND evaluated columns
+    is_already_evaluated = bool(
+        col_map.get("manual_csu")
+        and col_map.get("evaluated_csu")
+        and col_map.get("evaluated_rfd")
+    )
 
     # Date filter window normalization
     d_from = date_from
@@ -268,6 +352,9 @@ def parse_field_result_sheet(
     has_date_filter = window_start is not None and window_end is not None
 
     rows = ParsedRows()
+    rows.is_already_evaluated = is_already_evaluated
+    rows.has_manual_csu = bool(col_map.get("manual_csu"))
+    rows.has_manual_rfd = bool(col_map.get("manual_rfd"))
     total_valid_rows = 0
 
     def _get_val(row_data: Any, col_key: str) -> str:
@@ -286,15 +373,31 @@ def parse_field_result_sheet(
     header_excel_offset = best_header_row + 1  # 1-indexed
 
     for idx, row in df.iterrows():
+        final_remarks_val = _get_val(row, "final_remarks")
         remarks_val = _get_val(row, "remarks")
+        raw_msg_val = _get_val(row, "raw_message")
         acct_val = _get_val(row, "account_number")
         ch_val = _get_val(row, "ch_code")
 
+        resolved_final = final_remarks_val if final_remarks_val else remarks_val
+
+        # Filter out rows with blank or N/A account number (filtered out per operations requirement)
+        if col_map.get("account_number"):
+            acct_clean = acct_val.strip().casefold()
+            if not acct_clean or acct_clean in {"n/a", "na", "none", "nan", "null", "-", "--", "<na>", "n / a", "n.a.", "n.a", "#n/a", "#na"}:
+                continue
+
         # Skip only if all key identifying fields are empty
-        if not remarks_val and not acct_val and not ch_val:
+        if not resolved_final and not raw_msg_val and not acct_val and not ch_val:
             continue
 
         total_valid_rows += 1
+
+        # Test Mode: grab raw remark from message column or remarks column; Real Mode: from final remarks column
+        if test_mode:
+            chosen_raw = raw_msg_val if raw_msg_val else (remarks_val if remarks_val else resolved_final)
+        else:
+            chosen_raw = resolved_final if resolved_final else raw_msg_val
 
         # Resolve row date
         date_raw = _get_val(row, "date")
@@ -303,21 +406,40 @@ def parse_field_result_sheet(
         if parsed_dt is None:
             # Fallback scan other columns for valid date
             for col_name in df.columns:
-                c_low = str(col_name).lower()
-                if "date" in c_low or "time" in c_low or "visit" in c_low:
+                c_low = str(col_name).strip().lower()
+                if "update" in c_low and not re.search(r"(?:\b|_)date(?:\b|_)", c_low):
+                    continue
+                if re.search(r"(?:\b|_)(?:visit_date|report_date|trans_date|call_date|date|datetime|timestamp)(?:\b|_)", c_low):
                     parsed_dt = _parse_row_date(row[col_name])
                     if parsed_dt is not None:
                         break
 
+        if parsed_dt is None:
+            # Fallback scan remark text or ECA header for embedded date
+            for text_candidate in (final_remarks_val, remarks_val, raw_msg_val):
+                if not text_candidate:
+                    continue
+                m = re.search(r"(?:^|[\s_])(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}[/.-]\d{1,2}[/.-]\d{1,2})(?:[\s_]|$)", text_candidate)
+                if m:
+                    candidate_dt = _parse_row_date(m.group(1))
+                    if candidate_dt is not None:
+                        parsed_dt = candidate_dt
+                        break
+
         # Apply date filter
         if has_date_filter:
-            if parsed_dt is None:
-                continue
-            if not (window_start <= parsed_dt <= window_end):
+            if parsed_dt is not None:
+                if not (window_start <= parsed_dt <= window_end):
+                    continue
+            elif col_map.get("date"):
                 continue
 
         row_date_str = parsed_dt.strftime("%Y-%m-%d") if parsed_dt is not None else (str(date_raw) if date_raw else "")
-        excel_row_num = header_excel_offset + (int(idx) - best_header_row)
+        row_idx_val = _get_val(row, "row_index")
+        if row_idx_val and row_idx_val.isdigit():
+            excel_row_num = int(row_idx_val)
+        else:
+            excel_row_num = header_excel_offset + (int(idx) - best_header_row)
 
         raw_row = RawRemarkRow(
             row_index=excel_row_num,
@@ -325,14 +447,20 @@ def parse_field_result_sheet(
             ch_code=ch_val,
             contact_person=_get_val(row, "contact_person"),
             contact_relation=_get_val(row, "contact_relation"),
-            raw_remarks=remarks_val,
+            raw_remarks=chosen_raw,
             manual_csu=_get_val(row, "manual_csu"),
             manual_rfd=_get_val(row, "manual_rfd"),
             extra_fields={str(k): str(v) for k, v in row.items() if not _is_null_value(v)},
             row_date=row_date_str,
             client_status=_get_val(row, "client_status"),
             unit_status=_get_val(row, "unit_status"),
-            raw_message=_get_val(row, "raw_message"),
+            raw_message=raw_msg_val,
+            final_remarks=resolved_final,
+            evaluated_csu=_get_val(row, "evaluated_csu"),
+            evaluated_rfd=_get_val(row, "evaluated_rfd"),
+            evaluated_detailed_rfd=_get_val(row, "evaluated_detailed_rfd"),
+            evaluated_csu_why=_get_val(row, "evaluated_csu_why"),
+            evaluated_rfd_why=_get_val(row, "evaluated_rfd_why"),
         )
         rows.append(raw_row)
 
