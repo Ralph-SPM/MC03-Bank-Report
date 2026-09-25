@@ -95,10 +95,16 @@
 
           <div class="h-5 w-px bg-slate-300 my-auto mx-1"></div>
 
-          <!-- Remarks Lab Tab -->
-          <a href="/remarks-lab" class="group flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'remarks_lab' %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+          <!-- Remark Processor Tab -->
+          <a href="/remark-processor" class="group flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'remark_processor' %}bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
+            <span class="material-symbols-outlined text-[16px] text-emerald-600">bolt</span>
+            <span>Remark Processor</span>
+          </a>
+
+          <!-- Remarks Lab Tab (Pure Test Mode) -->
+          <a href="/remark-processor?tab=lab" class="group flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors {% if active_step == 'remarks_lab' %}bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs{% else %}text-slate-600 hover:text-slate-900 hover:bg-slate-100{% endif %}">
             <span class="material-symbols-outlined text-[16px] text-indigo-600">psychology</span>
-            <span>Remark Lab &amp; Benchmark</span>
+            <span>Remark Lab (Test Mode)</span>
           </a>
         </div>
         <div class="hidden lg:flex items-center space-x-2 text-xs text-slate-500 font-mono">

@@ -222,6 +222,11 @@ class RowResult:
     classification_source: str = "RULE"  # "AI" | "RULE" | "EVALUATED_EXPORT"
     csu_reasoning: str = ""
     rfd_reasoning: str = ""
+    concat_val: str = ""
+    csu_confidence: str = "high"
+    csu_alternatives: List[str] = field(default_factory=list)
+    rfd_confidence: str = "high"
+    rfd_alternatives: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -289,9 +294,25 @@ class RemarksLabPipeline:
         date_to: Optional[date] = None,
         test_mode: bool = False,
         run_ai: bool = False,
+        progress_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> BenchmarkReport:
+        if progress_callback:
+            progress_callback({
+                "stage": "parsing",
+                "percent": 5,
+                "message": "Reading workbook and matching column headers...",
+            })
         raw_rows = parse_field_result_sheet(source, date_from=date_from, date_to=date_to, test_mode=test_mode)
-        report = self.process_rows(raw_rows, test_mode=test_mode, run_ai=run_ai)
+        if progress_callback:
+            progress_callback({
+                "stage": "preprocessing",
+                "percent": 15,
+                "total_rows": len(raw_rows),
+                "message": f"Parsed {len(raw_rows)} rows. Classifying relationships & stripping tags...",
+            })
+        report = self.process_rows(
+            raw_rows, test_mode=test_mode, run_ai=run_ai, progress_callback=progress_callback
+        )
         report.test_mode = test_mode
         report.total_unfiltered_rows = getattr(raw_rows, "total_unfiltered_rows", len(raw_rows))
         report.date_from = date_from.isoformat() if date_from else None
@@ -304,6 +325,7 @@ class RemarksLabPipeline:
         raw_rows: List[RawRemarkRow],
         test_mode: bool = False,
         run_ai: bool = False,
+        progress_callback: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> BenchmarkReport:
         if not raw_rows:
             return BenchmarkReport(
@@ -392,6 +414,16 @@ class RemarksLabPipeline:
         english_count = sum(1 for l in languages if l == "ENGLISH")
         tagalog_count = len(languages) - english_count
 
+        if progress_callback:
+            progress_callback({
+                "stage": "routing",
+                "percent": 25,
+                "english_count": english_count,
+                "tagalog_count": tagalog_count,
+                "total_rows": len(preprocessed),
+                "message": f"Language routing complete: {english_count} English, {tagalog_count} Tagalog/Taglish ({detection_latency_ms:.1f}ms)",
+            })
+
         # 3. Parallel 2-Tier LLM Inference (Full AI CSU, RFD & Summarization)
         llm_results_map: Dict[int, Dict[str, Any]] = {}
         use_two_tier = (
@@ -407,10 +439,24 @@ class RemarksLabPipeline:
                     "cleaned_remark": p["narrative_for_llm"],
                     "raw_remark": p["narrative_for_llm"],
                     "contact_person": p["raw"].contact_person,
+                    "concat_val": p["raw"].concat_val or (f"{p['raw'].client_status}{p['raw'].unit_status}".strip() if p["raw"].client_status or p["raw"].unit_status else ""),
                     "eca_header": p["eca_header"],
                 }
                 for p in preprocessed
             ]
+
+            def _llm_progress(data: dict[str, Any]):
+                if progress_callback:
+                    comp = data.get("completed", 0)
+                    tot = data.get("total", len(records_for_llm))
+                    pct = min(90, 25 + int(65 * comp / max(1, tot)))
+                    progress_callback({
+                        "stage": "ai_inference",
+                        "percent": pct,
+                        "completed": comp,
+                        "total": tot,
+                        "message": f"AI processed remark {comp} of {tot} ({pct}%)...",
+                    })
 
             try:
                 import concurrent.futures
@@ -424,18 +470,29 @@ class RemarksLabPipeline:
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         dispatched_records, _ = executor.submit(
                             lambda: asyncio.run(
-                                self.two_tier_summarizer.parallel_process_records(records_for_llm, force_all=True)
+                                self.two_tier_summarizer.parallel_process_records(
+                                    records_for_llm, force_all=True, progress_callback=_llm_progress
+                                )
                             )
                         ).result()
                 else:
                     dispatched_records, _ = asyncio.run(
-                        self.two_tier_summarizer.parallel_process_records(records_for_llm, force_all=True)
+                        self.two_tier_summarizer.parallel_process_records(
+                            records_for_llm, force_all=True, progress_callback=_llm_progress
+                        )
                     )
 
                 for idx, d_rec in enumerate(dispatched_records):
                     llm_results_map[idx] = d_rec
             except Exception:
                 pass
+
+        if progress_callback:
+            progress_callback({
+                "stage": "finalizing",
+                "percent": 95,
+                "message": "Validating RCBC rules, formatting notes, and compiling table...",
+            })
 
         # 4. Assemble Row Results & Track Metrics
         results: List[RowResult] = []
@@ -470,6 +527,10 @@ class RemarksLabPipeline:
                     detailed_rfd_val = ranked_res.detailed_rfd
                 csu_reasoning = llm_res.get("csu_reasoning") or r.evaluated_csu_why or ranked_res.csu_reasoning
                 rfd_reasoning = llm_res.get("rfd_reasoning") or r.evaluated_rfd_why or ranked_res.rfd_reasoning
+                csu_confidence = llm_res.get("csu_confidence", "high")
+                csu_alternatives = llm_res.get("csu_alternatives", [])
+                rfd_confidence = llm_res.get("rfd_confidence", "high")
+                rfd_alternatives = llm_res.get("rfd_alternatives", [])
                 trimmed_text = llm_res.get("summary") or item["active_source"]
                 model_used = llm_res.get("model_used", "")
                 trim_method = "llm"
@@ -486,6 +547,10 @@ class RemarksLabPipeline:
                 detailed_rfd_val = ranked_res.detailed_rfd
                 csu_reasoning = r.evaluated_csu_why or ranked_res.csu_reasoning
                 rfd_reasoning = r.evaluated_rfd_why or ranked_res.rfd_reasoning
+                csu_confidence = "high"
+                csu_alternatives = []
+                rfd_confidence = "high"
+                rfd_alternatives = []
                 classification_source = "RULE"
                 trimmed_res: TrimmedRemark = trim_and_format(
                     cleaned_res.cleaned,
@@ -559,6 +624,11 @@ class RemarksLabPipeline:
                 classification_source=classification_source,
                 csu_reasoning=csu_reasoning,
                 rfd_reasoning=rfd_reasoning,
+                concat_val=r.concat_val,
+                csu_confidence=csu_confidence,
+                csu_alternatives=csu_alternatives,
+                rfd_confidence=rfd_confidence,
+                rfd_alternatives=rfd_alternatives,
             )
             results.append(row_res)
 
@@ -609,6 +679,8 @@ class RemarksLabPipeline:
                 "Contact Relation": r.contact_relation,
                 "Category Label": r.category_label,
             }
+            if r.concat_val:
+                row_dict["CONCAT"] = r.concat_val
             if report.test_mode:
                 row_dict["Raw Remark"] = r.raw_remarks
                 row_dict["Original CSU"] = r.manual_csu
@@ -630,5 +702,58 @@ class RemarksLabPipeline:
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="FIELD RESULT (EVALUATED)", index=False)
+        out.seek(0)
+        return out
+
+    def export_processed_rows(self, rows: list[dict[str, Any]], test_mode: bool = False) -> io.BytesIO:
+        """Export reviewed/edited rows from Remark Processor or Remark Lab into bank-compliant Excel format."""
+        import pandas as pd
+        data = []
+        for r in rows:
+            summary = str(r.get("trimmed_statement") or r.get("summary") or "").strip()
+            char_len = len(summary)
+            row_dict = {
+                "Row Index": r.get("row_index", ""),
+                "Account Number": r.get("account_number", ""),
+                "CH Code": r.get("ch_code", ""),
+                "Contact Person": r.get("contact_person", ""),
+                "Contact Relation": r.get("contact_relation", ""),
+                "Category Label": r.get("category_label", ""),
+            }
+            if r.get("concat_val"):
+                row_dict["CONCAT"] = r.get("concat_val", "")
+
+            # If test mode, include ground truth comparison columns
+            if test_mode or "manual_csu" in r or "raw_remarks" in r:
+                row_dict["Raw Remark"] = r.get("raw_remarks", "")
+                row_dict["Original CSU"] = r.get("manual_csu", "")
+                row_dict["Original RFD"] = r.get("manual_rfd", "")
+
+            row_dict["COLLECTION STATUS UPDATE"] = r.get("predicted_csu", "")
+            if test_mode or "csu_reasoning" in r:
+                row_dict["CSU Why"] = r.get("csu_reasoning", "")
+
+            row_dict["RFD"] = r.get("predicted_rfd", "")
+            if test_mode or "rfd_reasoning" in r:
+                row_dict["RFD Why"] = r.get("rfd_reasoning", "")
+
+            row_dict["DETAILED RFD"] = r.get("detailed_rfd", "")
+            row_dict["FINAL REMARKS"] = summary
+            row_dict["Character Count"] = char_len
+            row_dict["char checker"] = "" if char_len <= 200 else "PLS REVISE"
+
+            if test_mode:
+                csu_match = r.get("csu_match")
+                rfd_match = r.get("rfd_match")
+                row_dict["CSU Match"] = "YES" if csu_match else "NO"
+                row_dict["RFD Match"] = "YES" if rfd_match else "NO"
+                row_dict["Discrepancy"] = "DISCREPANCY" if r.get("discrepancy_flag") else "AGREE"
+
+            data.append(row_dict)
+        df = pd.DataFrame(data)
+        out = io.BytesIO()
+        sheet_title = "FIELD RESULT (EVALUATED)" if test_mode else "FIELD RESULT (PROCESSED)"
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name=sheet_title, index=False)
         out.seek(0)
         return out

@@ -134,3 +134,40 @@ def test_prompt_contains_critical_ground_truth_rules():
     # Rule 8: Rich reasoning explaining alternatives
     assert "csu_reasoning" in content
     assert "why alternatives were disqualified" in content or "why alternatives were rejected" in content
+
+
+def test_extract_json_payload_resilience():
+    """Verify that _extract_json_payload parses markdown code blocks, dirty quotes, and trailing commas."""
+    from engine.summarizer import _extract_json_payload
+
+    # 1. Clean markdown code fence
+    raw1 = '```json\n{\n  "summary": "House closed.",\n  "csu": "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)",\n  "rfd": "NO CLIENT/ REPRESENTATIVE"\n}\n```'
+    parsed1 = _extract_json_payload(raw1)
+    assert parsed1 is not None
+    assert parsed1["summary"] == "House closed."
+    assert "CLIENT POSITIVE" in parsed1["csu"]
+
+    # 2. Markdown fence with unescaped internal quotes
+    raw2 = '```json\n{\n  "summary": "Talked to neighbor.",\n  "csu": "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)",\n  "csu_reasoning": "Spoke with "neighbor" who confirmed residency",\n  "rfd": "NO CLIENT/ REPRESENTATIVE"\n}\n```'
+    parsed2 = _extract_json_payload(raw2)
+    assert parsed2 is not None
+    assert parsed2["summary"] == "Talked to neighbor."
+
+    # 3. Trailing comma in JSON
+    raw3 = '```json\n{\n  "summary": "House closed.",\n  "csu": "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)",\n  "rfd": "NO CLIENT/ REPRESENTATIVE",\n}\n```'
+    parsed3 = _extract_json_payload(raw3)
+    assert parsed3 is not None
+    assert parsed3["summary"] == "House closed."
+
+    # 4. Thinking tags before markdown block
+    raw4 = '<think>Analyzing remark...</think>\n```json\n{\n  "summary": "House closed.",\n  "csu": "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)",\n  "rfd": "NO CLIENT/ REPRESENTATIVE"\n}\n```'
+    parsed4 = _extract_json_payload(raw4)
+    assert parsed4 is not None
+    assert parsed4["summary"] == "House closed."
+
+    # 5. Unclosed markdown fence
+    raw5 = '```json\n{\n  "summary": "House closed.",\n  "csu": "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)",\n  "rfd": "NO CLIENT/ REPRESENTATIVE"\n'
+    parsed5 = _extract_json_payload(raw5)
+    assert parsed5 is not None
+    assert parsed5["summary"] == "House closed."
+

@@ -7,6 +7,7 @@ rendering, and archive packaging to the corresponding service/domain modules.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import ipaddress
 import json
@@ -18,11 +19,12 @@ from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import UploadFile
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 
 from mc03.domain.models import Disposition, ProcessedRow, RunResult
 from mc03.persistence.run_store import RunStore
@@ -30,7 +32,24 @@ from mc03.services.archive import ArchiveError, build_encrypted_archive
 from mc03.services.extraction_gateway import ExtractionGateway
 from mc03.services.orchestrator import process_run
 from mc03.services.remarks_lab import RemarksLabPipeline, GroqRemarksSummarizer
-from engine.summarizer import TwoTierRemarksSummarizer, get_summarizer
+from engine.summarizer import (
+    TwoTierRemarksSummarizer,
+    get_summarizer,
+    OFFICIAL_RCBC_CSU_OPTIONS,
+    OFFICIAL_RCBC_RFD_OPTIONS,
+    PRIMARY_CSU_OPTIONS,
+    PRIMARY_RFD_OPTIONS,
+)
+from engine.profiles import (
+    load_profiles_data,
+    get_active_profile,
+    save_profile,
+    activate_profile,
+    delete_profile,
+    reset_profiles_to_default,
+    fetch_available_models,
+    render_full_prompt,
+)
 from mc03.services.rendering import RenderError, render_workbooks
 from mc03.settings import RuntimeSettings, load_runtime_settings
 
@@ -524,9 +543,13 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
     @app.get("/remarks-lab", response_class=HTMLResponse)
     async def remarks_lab_view(request: Request) -> Response:
         """Render the Remarks Intelligence Lab upload form or cached analysis."""
+        index_file = Path("frontend/dist/index.html")
+        if index_file.is_file() and request.query_params.get("spa"):
+            return FileResponse(index_file)
+
         two_tier = get_summarizer()
         raw_test_mode = request.query_params.get("test_mode", "").lower()
-        test_mode = raw_test_mode in ("true", "1", "on", "yes")
+        test_mode = raw_test_mode in ("true", "1", "on", "yes", "") or True
         return templates.TemplateResponse(
             request,
             "remarks_lab.html",
@@ -832,7 +855,485 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             "applied_rules": data_to_store,
         })
 
+    @app.get("/api/remarks/taxonomies")
+    async def get_taxonomies() -> Response:
+        """Returns official RCBC CSUs and RFDs for frontend dropdowns."""
+        return JSONResponse({
+            "csu_options": OFFICIAL_RCBC_CSU_OPTIONS,
+            "rfd_options": OFFICIAL_RCBC_RFD_OPTIONS,
+            "primary_csu": PRIMARY_CSU_OPTIONS,
+            "primary_rfd": PRIMARY_RFD_OPTIONS,
+        })
+
+    @app.get("/api/remarks/models")
+    async def get_remarks_models() -> Response:
+        """Returns list of models available for selection from LiteLLM proxy."""
+        models = await fetch_available_models()
+        return JSONResponse({"models": models})
+
+    @app.get("/api/remarks/profiles")
+    async def get_remarks_profiles() -> Response:
+        """Returns all configured prompt profiles and active profile id."""
+        data = load_profiles_data()
+        return JSONResponse(data)
+
+    @app.post("/api/remarks/profiles")
+    async def post_remarks_profiles(request: Request) -> Response:
+        """Saves a profile (update/create) or sets active profile."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
+
+        # Check if activating an existing profile
+        action = payload.get("action")
+        if action == "activate":
+            profile_id = str(payload.get("profile_id", "")).strip()
+            if not profile_id:
+                return JSONResponse({"error": "profile_id is required to activate"}, status_code=400)
+            try:
+                activated = activate_profile(profile_id)
+                get_summarizer().reload_active_profile()
+                return JSONResponse({
+                    "status": "success",
+                    "active_profile": activated,
+                    "profiles_data": load_profiles_data(),
+                })
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=400)
+
+        # Otherwise saving/updating a profile
+        profile = payload.get("profile") or payload
+        set_active = payload.get("set_active", True)
+        try:
+            saved = save_profile(profile, set_active=set_active)
+            get_summarizer().reload_active_profile()
+            return JSONResponse({
+                "status": "success",
+                "saved_profile": saved,
+                "profiles_data": load_profiles_data(),
+            })
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.delete("/api/remarks/profiles/{profile_id}")
+    async def delete_remarks_profile(profile_id: str) -> Response:
+        """Deletes a custom profile."""
+        try:
+            deleted = delete_profile(profile_id)
+            get_summarizer().reload_active_profile()
+            return JSONResponse({
+                "status": "success",
+                "deleted": deleted,
+                "profiles_data": load_profiles_data(),
+            })
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/api/remarks/profiles/reset")
+    async def reset_remarks_profiles() -> Response:
+        """Resets profiles back to factory default configuration."""
+        data = reset_profiles_to_default()
+        get_summarizer().reload_active_profile()
+        return JSONResponse({
+            "status": "success",
+            "message": "Reset all profiles to factory defaults.",
+            "profiles_data": data,
+        })
+
+    @app.post("/api/remarks/prompt-preview")
+    async def preview_remarks_prompt(request: Request) -> Response:
+        """Renders the assembled prompt preview."""
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        instructions = payload.get("system_instructions", "")
+        rendered = render_full_prompt(instructions=instructions)
+        return JSONResponse({"rendered_prompt": rendered})
+
+    @app.post("/api/remarks/process")
+    async def api_remarks_process(request: Request) -> Response:
+        """Production Mode: Parse FIELD RSULT and run AI/Rule pipeline in Real Mode."""
+        form = await request.form()
+        workbook_upload = form.get("workbook")
+        raw_date_from = _form_str(form.get("date_from"))
+        raw_date_to = _form_str(form.get("date_to"))
+        date_from = _parse_iso_date(raw_date_from)
+        date_to = _parse_iso_date(raw_date_to)
+        raw_run_ai = form.get("run_ai")
+        if raw_run_ai is None or raw_run_ai == "":
+            run_ai = True
+        else:
+            run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+
+        contents = await workbook_upload.read()
+        if not contents:
+            return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+        try:
+            two_tier = get_summarizer()
+            two_tier.reload_active_profile()
+            pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
+            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=False, run_ai=run_ai)
+            return JSONResponse({
+                "success": True,
+                "total_rows": report.total_rows,
+                "sanitized_tag_count": report.sanitized_tag_count,
+                "char_overflow_prevented_count": report.char_overflow_prevented_count,
+                "english_count": report.english_count,
+                "tagalog_count": report.tagalog_count,
+                "detection_latency_ms": report.detection_latency_ms,
+                "ai_summarized_count": report.ai_summarized_count,
+                "rule_based_fallback_count": report.rule_based_fallback_count,
+                "model_tagalog": report.model_tagalog,
+                "model_english": report.model_english,
+                "rows": [_serialize_row_result(r) for r in report.rows],
+            })
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return JSONResponse({"error": f"Failed to process workbook: {exc}"}, status_code=500)
+
+    @app.post("/api/remarks/test")
+    async def api_remarks_test(request: Request) -> Response:
+        """Pure Test Mode: Parse FIELD RSULT, benchmark against ground truth, and calculate agreement %."""
+        form = await request.form()
+        workbook_upload = form.get("workbook")
+        raw_date_from = _form_str(form.get("date_from"))
+        raw_date_to = _form_str(form.get("date_to"))
+        date_from = _parse_iso_date(raw_date_from)
+        date_to = _parse_iso_date(raw_date_to)
+        raw_run_ai = form.get("run_ai")
+        if raw_run_ai is None or raw_run_ai == "":
+            run_ai = True
+        else:
+            run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+
+        contents = await workbook_upload.read()
+        if not contents:
+            return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+        try:
+            two_tier = get_summarizer()
+            two_tier.reload_active_profile()
+            pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
+            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=True, run_ai=run_ai)
+            return JSONResponse({
+                "success": True,
+                "total_rows": report.total_rows,
+                "sanitized_tag_count": report.sanitized_tag_count,
+                "csu_accuracy_pct": report.csu_accuracy_pct,
+                "rfd_accuracy_pct": report.rfd_accuracy_pct,
+                "char_overflow_prevented_count": report.char_overflow_prevented_count,
+                "english_count": report.english_count,
+                "tagalog_count": report.tagalog_count,
+                "detection_latency_ms": report.detection_latency_ms,
+                "discrepancy_count": report.discrepancy_count,
+                "rows_with_ground_truth": report.rows_with_ground_truth,
+                "representative_count": report.representative_count,
+                "informant_count": report.informant_count,
+                "cardholder_count": report.cardholder_count,
+                "ai_summarized_count": report.ai_summarized_count,
+                "rule_based_fallback_count": report.rule_based_fallback_count,
+                "model_tagalog": report.model_tagalog,
+                "model_english": report.model_english,
+                "rows": [_serialize_row_result(r) for r in report.rows],
+            })
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            return JSONResponse({"error": f"Failed to test workbook: {exc}"}, status_code=500)
+
+    @app.post("/api/remarks/process-stream")
+    async def api_remarks_process_stream(request: Request) -> Response:
+        """Stream real-time progress and final result of Field Remarks processing via SSE."""
+        form = await request.form()
+        workbook_upload = form.get("workbook")
+        raw_date_from = _form_str(form.get("date_from"))
+        raw_date_to = _form_str(form.get("date_to"))
+        date_from = _parse_iso_date(raw_date_from)
+        date_to = _parse_iso_date(raw_date_to)
+        raw_run_ai = form.get("run_ai")
+        if raw_run_ai is None or raw_run_ai == "":
+            run_ai = True
+        else:
+            run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+
+        contents = await workbook_upload.read()
+        if not contents:
+            return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+        async def sse_generator():
+            queue: asyncio.Queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def progress_cb(evt: dict[str, Any]):
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "progress", **evt})
+                except Exception:
+                    pass
+
+            def run_sync_pipeline():
+                try:
+                    two_tier = get_summarizer()
+                    two_tier.reload_active_profile()
+                    pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
+                    report = pipeline.process_file(
+                        contents,
+                        date_from=date_from,
+                        date_to=date_to,
+                        test_mode=False,
+                        run_ai=run_ai,
+                        progress_callback=progress_cb,
+                    )
+                    payload = {
+                        "type": "complete",
+                        "data": {
+                            "success": True,
+                            "total_rows": report.total_rows,
+                            "sanitized_tag_count": report.sanitized_tag_count,
+                            "char_overflow_prevented_count": report.char_overflow_prevented_count,
+                            "english_count": report.english_count,
+                            "tagalog_count": report.tagalog_count,
+                            "detection_latency_ms": report.detection_latency_ms,
+                            "ai_summarized_count": report.ai_summarized_count,
+                            "rule_based_fallback_count": report.rule_based_fallback_count,
+                            "model_tagalog": report.model_tagalog,
+                            "model_english": report.model_english,
+                            "rows": [_serialize_row_result(r) for r in report.rows],
+                        },
+                    }
+                    loop.call_soon_threadsafe(queue.put_nowait, payload)
+                except Exception as exc:
+                    import traceback
+                    traceback.print_exc()
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(exc)})
+
+            import concurrent.futures
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = loop.run_in_executor(executor, run_sync_pipeline)
+
+            while not future.done() or not queue.empty():
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                    if msg.get("type") in ("complete", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+
+            executor.shutdown(wait=False)
+
+        return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+    @app.post("/api/remarks/test-stream")
+    async def api_remarks_test_stream(request: Request) -> Response:
+        """Stream real-time progress and final benchmark result for Remarks Lab via SSE."""
+        form = await request.form()
+        workbook_upload = form.get("workbook")
+        raw_date_from = _form_str(form.get("date_from"))
+        raw_date_to = _form_str(form.get("date_to"))
+        date_from = _parse_iso_date(raw_date_from)
+        date_to = _parse_iso_date(raw_date_to)
+        raw_run_ai = form.get("run_ai")
+        if raw_run_ai is None or raw_run_ai == "":
+            run_ai = True
+        else:
+            run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+
+        upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
+        is_valid_file = isinstance(workbook_upload, UploadFile) and (
+            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+        )
+        if not is_valid_file:
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+
+        contents = await workbook_upload.read()
+        if not contents:
+            return JSONResponse({"error": "The uploaded file is empty."}, status_code=400)
+
+        async def sse_generator():
+            queue: asyncio.Queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def progress_cb(evt: dict[str, Any]):
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "progress", **evt})
+                except Exception:
+                    pass
+
+            def run_sync_pipeline():
+                try:
+                    two_tier = get_summarizer()
+                    two_tier.reload_active_profile()
+                    pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
+                    report = pipeline.process_file(
+                        contents,
+                        date_from=date_from,
+                        date_to=date_to,
+                        test_mode=True,
+                        run_ai=run_ai,
+                        progress_callback=progress_cb,
+                    )
+                    payload = {
+                        "type": "complete",
+                        "data": {
+                            "success": True,
+                            "total_rows": report.total_rows,
+                            "sanitized_tag_count": report.sanitized_tag_count,
+                            "csu_accuracy_pct": report.csu_accuracy_pct,
+                            "rfd_accuracy_pct": report.rfd_accuracy_pct,
+                            "char_overflow_prevented_count": report.char_overflow_prevented_count,
+                            "english_count": report.english_count,
+                            "tagalog_count": report.tagalog_count,
+                            "detection_latency_ms": report.detection_latency_ms,
+                            "discrepancy_count": report.discrepancy_count,
+                            "rows_with_ground_truth": report.rows_with_ground_truth,
+                            "representative_count": report.representative_count,
+                            "informant_count": report.informant_count,
+                            "cardholder_count": report.cardholder_count,
+                            "ai_summarized_count": report.ai_summarized_count,
+                            "rule_based_fallback_count": report.rule_based_fallback_count,
+                            "model_tagalog": report.model_tagalog,
+                            "model_english": report.model_english,
+                            "rows": [_serialize_row_result(r) for r in report.rows],
+                        },
+                    }
+                    loop.call_soon_threadsafe(queue.put_nowait, payload)
+                except Exception as exc:
+                    import traceback
+                    traceback.print_exc()
+                    loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "error": str(exc)})
+
+            import concurrent.futures
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = loop.run_in_executor(executor, run_sync_pipeline)
+
+            while not future.done() or not queue.empty():
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=0.25)
+                    yield f"data: {json.dumps(msg)}\n\n"
+                    if msg.get("type") in ("complete", "error"):
+                        break
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+
+            executor.shutdown(wait=False)
+
+        return StreamingResponse(sse_generator(), media_type="text/event-stream")
+
+    @app.post("/api/remarks/export-processed")
+    async def api_remarks_export_processed(request: Request) -> Response:
+        """Export reviewed/edited rows from Remark Processor into bank-compliant Excel file."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
+
+        rows = payload.get("rows", [])
+        if not isinstance(rows, list) or not rows:
+            return JSONResponse({"error": "No rows to export"}, status_code=400)
+
+        test_mode = bool(payload.get("test_mode", False))
+        pipeline = RemarksLabPipeline()
+        output_buffer = pipeline.export_processed_rows(rows, test_mode=test_mode)
+
+        prefix = "RCBC_FIELD_EVALUATED" if test_mode else "RCBC_FIELD_PROCESSED"
+        filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        return Response(
+            content=output_buffer.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    dist_dir = Path("frontend/dist")
+    if dist_dir.is_dir() and (dist_dir / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="frontend-assets")
+
+    @app.get("/remark-processor", response_class=HTMLResponse)
+    async def remark_processor_page(request: Request) -> Response:
+        index_file = Path("frontend/dist/index.html")
+        if index_file.is_file():
+            return FileResponse(index_file)
+        return templates.TemplateResponse(
+            request,
+            "remarks_lab.html",
+            {
+                "request": request,
+                "active_step": "remark_processor",
+                "report": None,
+                "test_mode": False,
+            },
+        )
+
     return app
+
+
+def _serialize_row_result(r: Any) -> dict[str, Any]:
+    """Serialize a RowResult dataclass into a JSON-serializable dictionary."""
+    return {
+        "row_index": getattr(r, "row_index", 0),
+        "account_number": getattr(r, "account_number", ""),
+        "ch_code": getattr(r, "ch_code", ""),
+        "contact_person": getattr(r, "contact_person", ""),
+        "contact_relation": getattr(r, "contact_relation", ""),
+        "category_label": getattr(r, "category_label", ""),
+        "normalized_role": getattr(r, "normalized_role", ""),
+        "matched_relation_keyword": getattr(r, "matched_relation_keyword", ""),
+        "concat_val": getattr(r, "concat_val", ""),
+        "raw_remarks": getattr(r, "raw_remarks", ""),
+        "cleaned_remarks": getattr(r, "cleaned_remarks", ""),
+        "prohibited_tags_stripped": getattr(r, "prohibited_tags_stripped", []),
+        "trimmed_statement": getattr(r, "trimmed_statement", ""),
+        "original_char_count": getattr(r, "original_char_count", 0),
+        "final_char_count": getattr(r, "final_char_count", 0),
+        "truncated": getattr(r, "truncated", False),
+        "predicted_csu": getattr(r, "predicted_csu", ""),
+        "predicted_rfd": getattr(r, "predicted_rfd", ""),
+        "detailed_rfd": getattr(r, "detailed_rfd", ""),
+        "csu_reasoning": getattr(r, "csu_reasoning", ""),
+        "rfd_reasoning": getattr(r, "rfd_reasoning", ""),
+        "csu_confidence": getattr(r, "csu_confidence", "high"),
+        "csu_alternatives": getattr(r, "csu_alternatives", []),
+        "rfd_confidence": getattr(r, "rfd_confidence", "high"),
+        "rfd_alternatives": getattr(r, "rfd_alternatives", []),
+        "manual_csu": getattr(r, "manual_csu", ""),
+        "manual_rfd": getattr(r, "manual_rfd", ""),
+        "csu_match": getattr(r, "csu_match", False),
+        "rfd_match": getattr(r, "rfd_match", False),
+        "discrepancy_flag": getattr(r, "discrepancy_flag", False),
+        "row_date": getattr(r, "row_date", ""),
+        "raw_message": getattr(r, "raw_message", ""),
+        "ai_summarized": getattr(r, "ai_summarized", False),
+        "trim_method": getattr(r, "trim_method", "none"),
+        "detected_language": getattr(r, "detected_language", "ENGLISH"),
+        "language_route": getattr(r, "language_route", "ENGLISH"),
+        "model_used": getattr(r, "model_used", ""),
+        "classification_source": getattr(r, "classification_source", "RULE"),
+    }
 
 
 def _extract_structured_rules(items: list[dict]) -> dict[str, list[str]]:

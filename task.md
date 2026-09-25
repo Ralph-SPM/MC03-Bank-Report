@@ -22,4 +22,15 @@
   - [x] Parallel 2-Tier LLM Dispatcher (`engine/summarizer.py`) via LiteLLM (`qwen3-32b` & `nova-2-lite`)
   - [x] UI & Benchmark Lab Integration (`remarks_lab.html` route badges, split card, filter pills)
   - [x] Full Verification & 147/147 test suite pass
+- [x] 6. Pure Test Mode & Dedicated Remark Processor with React 19 Frontend
+  - [x] Concat column resolution & extraction (`parser.py` & `pipeline.py`)
+  - [x] LLM confidence & alternative candidates schema with quick-switch pills (`engine/summarizer.py`)
+  - [x] Modern React 19 + Vite + TypeScript + Tailwind CSS Frontend (`frontend/`)
+  - [x] 5-column production table (CH Code, Relationship, Concat, Remark Summary, Tool Answer)
+  - [x] Inline editable textarea with real-time <=200 character counter and validation warning
+  - [x] Interactive searchable dropdowns for full RCBC CSU & RFD taxonomies
+  - [x] Pure test mode for Remark Lab (KPI benchmark cards, agreement %, DIFF tags, prompt fine-tuning)
+  - [x] REST API endpoints (`/api/remarks/taxonomies`, `/api/remarks/process`, `/api/remarks/test`, `/api/remarks/export-processed`)
+  - [x] Full Verification (166/166 tests passed, Vite production bundle generated)
+
 

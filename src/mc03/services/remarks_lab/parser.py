@@ -35,6 +35,7 @@ class RawRemarkRow:
     evaluated_detailed_rfd: str = ""
     evaluated_csu_why: str = ""
     evaluated_rfd_why: str = ""
+    concat_val: str = ""
 
 
 class ParsedRows(list):
@@ -99,6 +100,10 @@ COLUMN_ALIASES = {
         "source timestamp", "source_timestamp", "timestamp", "report_date", "report date",
         "date of visit", "trans_date", "transaction date", "created_date", "visit date / time",
         "endorsement date", "date visited", "datetime", "call_datetime"
+    ],
+    "concat": [
+        "concat", "concatenate", "concat_col", "concat_column", "concat column",
+        "concat_key", "concat key", "key", "account_concat", "ch_concat", "concatenated"
     ]
 }
 
@@ -306,6 +311,7 @@ def parse_field_result_sheet(
         "unit_status": _find_column_match(df.columns, "unit_status"),
         "raw_message": _find_column_match(df.columns, "raw_message"),
         "row_index": _find_column_match(df.columns, "row_index"),
+        "concat": _find_column_match(df.columns, "concat"),
     }
 
     # Fallback search for date column if not matched via aliases
@@ -461,6 +467,7 @@ def parse_field_result_sheet(
             evaluated_detailed_rfd=_get_val(row, "evaluated_detailed_rfd"),
             evaluated_csu_why=_get_val(row, "evaluated_csu_why"),
             evaluated_rfd_why=_get_val(row, "evaluated_rfd_why"),
+            concat_val=_get_val(row, "concat"),
         )
         rows.append(raw_row)
 

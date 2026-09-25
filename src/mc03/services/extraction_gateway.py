@@ -372,7 +372,7 @@ _ACCOUNT_VALUE_PATTERN = re.compile(
     r"\s*[:#=-]?\s*[A-Z0-9][A-Z0-9/-]{3,}\b"
 )
 _CH_VALUE_PATTERN = re.compile(
-    r"(?i)\b(?:bcal[-\s]?[A-Z0-9-]+|ch\s*(?:code|#)?\s*[:#=-]?\s*"
+    r"(?i)\b(?:b[ck]al[-\s]?[A-Z0-9-]+|ch\s*(?:code|#)?\s*[:#=-]?\s*"
     r"[A-Z0-9][A-Z0-9/-]{2,})\b"
 )
 _NAMED_PERSON_PATTERN = re.compile(

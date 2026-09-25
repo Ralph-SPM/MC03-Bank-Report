@@ -22,6 +22,18 @@ token.json
 # ==============================================================================
 scratch/
 var/
+output/
+outputs/
+exports/
+reports/
+
+# Spreadsheet dumps & raw bank workbooks (prevents accidental commit of PII)
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+!tests/fixtures/*.xlsx
+!tests/fixtures/*.csv
 
 # Database files & SQLite journals
 *.sqlite
@@ -55,6 +67,7 @@ __pycache__/
 *$py.class
 *.egg-info/
 *.egg
+*.whl
 dist/
 build/
 eggs/
@@ -63,12 +76,32 @@ develop-eggs/
 .installed.cfg
 
 # ==============================================================================
+# Frontend, Node & Web Build Artifacts
+# ==============================================================================
+node_modules/
+dist-ssr/
+.vite/
+.npm/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.oxlintcache
+.oxlint_cache
+.eslintcache
+*.local
+
+# ==============================================================================
 # Testing, Coverage & Type Checkers
 # ==============================================================================
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
+coverage/
+test-results/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
@@ -95,12 +128,18 @@ $RECYCLE.BIN/
 .vscode/
 *.sublime-project
 *.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.user
 *.swp
 *.swo
 *~
 *.bak
 *.tmp
 *.temp
+
 
 # ==============================================================================
 # Logs

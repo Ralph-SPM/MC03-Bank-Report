@@ -7,7 +7,7 @@ import re
 # Marker patterns are deliberately bounded so ordinary words containing a marker
 # substring (for example, ``phone`` or ``source``) remain untouched.
 _BCAL_CH_PATTERN = re.compile(
-    r"(?<!\w)BCAL[\s._:/-]*CH(?:[\s._:/-]*[A-Z0-9][A-Z0-9._/-]*)?",
+    r"(?<!\w)(?:BKAL|BCAL)[\s._:/-]*CH(?:[\s._:/-]*[A-Z0-9][A-Z0-9._/-]*)?",
     re.IGNORECASE,
 )
 _L3_PATTERN = re.compile(r"(?<!\w)L3(?!\w)(?:\s*[:=/-])?", re.IGNORECASE)
