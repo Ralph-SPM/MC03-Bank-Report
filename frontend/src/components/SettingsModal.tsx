@@ -15,6 +15,10 @@ import {
   Loader2,
   FileCode,
   Globe2,
+  Activity,
+  Zap,
+  CheckCircle2,
+  WifiOff,
 } from 'lucide-react';
 import type { PromptProfile, ProfilesData } from '../types';
 
@@ -51,9 +55,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [confirmFactoryReset, setConfirmFactoryReset] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
 
-  // Load profiles and models on modal open
+  // Backend & LLM Connection Diagnostics
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'reachable' | 'unreachable'>('checking');
+  const [backendLatency, setBackendLatency] = useState<number | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<any | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  // Check backend health
+  const checkBackendHealth = async () => {
+    setBackendStatus('checking');
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/api/health');
+      if (res.ok) {
+        const lat = Math.round(performance.now() - t0);
+        setBackendStatus('reachable');
+        setBackendLatency(lat);
+      } else {
+        setBackendStatus('unreachable');
+        setBackendLatency(null);
+      }
+    } catch {
+      setBackendStatus('unreachable');
+      setBackendLatency(null);
+    }
+  };
+
+  // Test LLM Connection handler
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setTestError(null);
+    try {
+      const res = await fetch('/api/remarks/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_english: editModelEn,
+          model_tagalog: editModelTl,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
+      }
+      const data = await res.json();
+      setTestResult(data);
+      if (data.backend?.status === 'reachable') {
+        setBackendStatus('reachable');
+        if (data.backend.latency_ms) {
+          setBackendLatency(Math.round(data.backend.latency_ms));
+        }
+      }
+      showToast('LLM connection test complete.');
+    } catch (err: any) {
+      setTestError(err.message || 'Connection test failed');
+      setBackendStatus('unreachable');
+      showToast('Connection test failed.');
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  // Load profiles, models, and backend health on modal open
   useEffect(() => {
     if (!isOpen) return;
+
+    checkBackendHealth();
+    setTestResult(null);
+    setTestError(null);
 
     // Fetch models list
     fetch('/api/remarks/models')
@@ -353,6 +423,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     INACTIVE
                   </span>
                 )}
+                {/* Backend Reachability Indicator */}
+                {backendStatus === 'reachable' ? (
+                  <span
+                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono"
+                    title={`Backend API is connected and responding on port 8080 (latency: ${backendLatency ?? 0}ms)`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>Backend Online {backendLatency !== null ? `(${backendLatency}ms)` : ''}</span>
+                  </span>
+                ) : backendStatus === 'unreachable' ? (
+                  <span
+                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/20 text-red-300 border border-red-500/40 font-mono"
+                    title="Backend API server is not responding or unreachable at http://127.0.0.1:8080"
+                  >
+                    <WifiOff className="w-2.5 h-2.5 text-red-400" />
+                    <span>Backend Offline</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700 font-mono">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin text-slate-400" />
+                    <span>Checking Backend...</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
                 Configure 2-Tier Language routing models, prompt directives, and operational rules.
@@ -541,6 +634,140 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   Processes colloquial Tagalog, nuances, and code-switched phrases.
                 </p>
               </div>
+            </div>
+
+            {/* Test LLM Connection Section */}
+            <div className="mt-3 pt-3 border-t border-slate-200/80">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h5 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>LLM &amp; Proxy Connectivity Test</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-500">
+                    Verify LiteLLM proxy and check if your selected models ({editModelEn} &amp; {editModelTl}) are online and responding.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={isTestingConnection}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+                  title="Send live probe to LiteLLM proxy and selected models"
+                >
+                  {isTestingConnection ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Testing Models...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Test LLM Connection</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Diagnostic Results Card */}
+              {testResult && (
+                <div className="mt-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs border-b border-slate-100 pb-2">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Diagnostic Status:</span>
+                      {testResult.proxy?.reachable && testResult.models?.english?.status === 'online' && testResult.models?.tagalog?.status === 'online' ? (
+                        <span className="text-emerald-700 font-bold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> All Systems Operational
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 font-bold flex items-center gap-1">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Connection Issues Detected
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      Backend API: <span className="text-emerald-700 font-bold">Reachable</span> ({testResult.backend?.latency_ms ? `${testResult.backend.latency_ms}ms` : 'online'})
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                    {/* Proxy Card */}
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700">LiteLLM Proxy</span>
+                        {testResult.proxy?.reachable ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                            ONLINE ({testResult.proxy.latency_ms}ms)
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800">
+                            UNREACHABLE
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-500 truncate" title={testResult.proxy?.base_url}>
+                        {testResult.proxy?.base_url}
+                      </div>
+                      {testResult.proxy?.error && (
+                        <p className="text-[10px] text-red-600 font-mono mt-1 break-words">{testResult.proxy.error}</p>
+                      )}
+                    </div>
+
+                    {/* English Model Card */}
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 truncate pr-1">EN: {testResult.models?.english?.model}</span>
+                        {testResult.models?.english?.status === 'online' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                            ONLINE ({testResult.models.english.latency_ms}ms)
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 shrink-0">
+                            FAILED
+                          </span>
+                        )}
+                      </div>
+                      {testResult.models?.english?.status === 'online' ? (
+                        <p className="text-[10px] text-emerald-700 font-medium">Ready for English remarks</p>
+                      ) : (
+                        <p className="text-[10px] text-red-600 font-mono break-words">
+                          {testResult.models?.english?.error || 'No response / timed out'}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Tagalog Model Card */}
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700 truncate pr-1">TL: {testResult.models?.tagalog?.model}</span>
+                        {testResult.models?.tagalog?.status === 'online' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                            ONLINE ({testResult.models.tagalog.latency_ms}ms)
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 shrink-0">
+                            FAILED
+                          </span>
+                        )}
+                      </div>
+                      {testResult.models?.tagalog?.status === 'online' ? (
+                        <p className="text-[10px] text-emerald-700 font-medium">Ready for Tagalog remarks</p>
+                      ) : (
+                        <p className="text-[10px] text-red-600 font-mono break-words">
+                          {testResult.models?.tagalog?.error || 'No response / timed out'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {testError && !testResult && (
+                <div className="mt-2.5 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+                  <span className="font-mono text-[11px]">{testError}</span>
+                </div>
+              )}
             </div>
           </div>
 

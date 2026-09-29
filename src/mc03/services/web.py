@@ -14,6 +14,7 @@ import json
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
+import os
 from typing import Final
 from uuid import uuid4
 
@@ -887,6 +888,141 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             "rfd_options": OFFICIAL_RCBC_RFD_OPTIONS,
             "primary_csu": PRIMARY_CSU_OPTIONS,
             "primary_rfd": PRIMARY_RFD_OPTIONS,
+        })
+
+    @app.get("/api/health")
+    async def get_health() -> Response:
+        """Liveness probe to verify backend API is reachable."""
+        return JSONResponse({
+            "status": "ok",
+            "service": "mc03-remarks-processor",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+    @app.post("/api/remarks/test-connection")
+    async def post_test_llm_connection(request: Request) -> Response:
+        """Tests live connectivity to LiteLLM proxy and verifies chat completions for specified models."""
+        import time
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        t_backend_start = time.perf_counter()
+
+        # Resolve models to test
+        active_prof = get_active_profile()
+        model_en = str(payload.get("model_english") or active_prof.get("model_english") or os.getenv("MODEL_ENGLISH", "qwen3-32b")).strip()
+        model_tl = str(payload.get("model_tagalog") or active_prof.get("model_tagalog") or os.getenv("MODEL_TAGALOG", "minimax-m2.5")).strip()
+
+        base_url = (os.getenv("LITELLM_BASE_URL", "https://litellm.spmadridph.com/v1")).rstrip("/")
+        api_key = os.getenv("LITELLM_API_KEY", "").strip()
+
+        proxy_res = {
+            "base_url": base_url,
+            "reachable": False,
+            "status_code": None,
+            "latency_ms": None,
+            "error": None,
+        }
+
+        # 1. Test Proxy reachability (/models)
+        t0 = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{base_url}/models",
+                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                )
+                proxy_res["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                proxy_res["status_code"] = resp.status_code
+                if resp.status_code == 200:
+                    proxy_res["reachable"] = True
+                else:
+                    proxy_res["error"] = f"HTTP {resp.status_code}: {resp.text[:120]}"
+        except Exception as e:
+            proxy_res["latency_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+            proxy_res["error"] = f"{type(e).__name__}: {str(e)[:150]}"
+
+        # 2. Helper to test single model chat completion
+        async def _test_model(model_name: str) -> dict[str, Any]:
+            if not model_name:
+                return {"model": "", "status": "skipped", "latency_ms": None, "error": "No model specified"}
+            t_start = time.perf_counter()
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    resp = await client.post(
+                        f"{base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": model_name,
+                            "messages": [{"role": "user", "content": "Respond with OK in one word."}],
+                            "max_tokens": 10,
+                        },
+                    )
+                    lat_ms = round((time.perf_counter() - t_start) * 1000, 1)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+                        return {
+                            "model": model_name,
+                            "status": "online",
+                            "status_code": 200,
+                            "latency_ms": lat_ms,
+                            "reply": reply[:50],
+                            "error": None,
+                        }
+                    else:
+                        return {
+                            "model": model_name,
+                            "status": "failed",
+                            "status_code": resp.status_code,
+                            "latency_ms": lat_ms,
+                            "error": f"HTTP {resp.status_code}: {resp.text[:120]}",
+                        }
+            except Exception as e:
+                lat_ms = round((time.perf_counter() - t_start) * 1000, 1)
+                err_type = type(e).__name__
+                if "Timeout" in err_type or "Timeout" in str(e):
+                    err_msg = f"Timed out after 8.0s ({err_type})"
+                else:
+                    err_msg = f"{err_type}: {str(e)[:150]}"
+                return {
+                    "model": model_name,
+                    "status": "failed",
+                    "status_code": None,
+                    "latency_ms": lat_ms,
+                    "error": err_msg,
+                }
+
+        # Run model tests concurrently
+        models_to_test = [model_en]
+        if model_tl != model_en:
+            models_to_test.append(model_tl)
+
+        test_results = await asyncio.gather(*[_test_model(m) for m in models_to_test])
+        res_map = {m["model"]: m for m in test_results}
+
+        en_res = res_map.get(model_en, {"model": model_en, "status": "unknown"})
+        tl_res = res_map.get(model_tl, en_res if model_tl == model_en else {"model": model_tl, "status": "unknown"})
+
+        backend_lat = round((time.perf_counter() - t_backend_start) * 1000, 1)
+
+        return JSONResponse({
+            "backend": {
+                "status": "reachable",
+                "service": "mc03-remarks-processor",
+                "latency_ms": backend_lat,
+            },
+            "proxy": proxy_res,
+            "models": {
+                "english": en_res,
+                "tagalog": tl_res,
+            },
         })
 
     @app.get("/api/remarks/models")

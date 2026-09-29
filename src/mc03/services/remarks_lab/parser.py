@@ -64,11 +64,13 @@ COLUMN_ALIASES = {
         "ch code", "ch_code", "chcode", "cardholder code", "card holder code", "client code", "ch_id", "ch"
     ],
     "contact_person": [
-        "contact person", "contact_person", "contact name", "person contacted", "contact",
-        "spoke to", "contact person name", "name", "borrower"
+        "cardholder / client name", "cardholder/client name", "cardholder name", "client name",
+        "contact person (ch)", "contact person", "contact_person", "contact name", "person contacted", "contact",
+        "spoke to", "contact person name", "name", "borrower", "ch name"
     ],
     "contact_relation": [
-        "contact relation", "contact_relation", "relation", "relationship", "relation to ch",
+        "relation to ch", "relation_to_ch", "field contact relation", "field_contact_relation",
+        "contact relation", "contact_relation", "relation", "relationship",
         "contact's relation", "contact relation to borrower"
     ],
     "final_remarks": [

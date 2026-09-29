@@ -661,12 +661,19 @@ class RemarksLabPipeline:
             if discrepancy and not is_fallback:
                 discrepancies += 1
 
+            resolved_contact_relation = r.contact_relation
+            if not resolved_contact_relation or resolved_contact_relation.strip().lower() in {"", "none", "nan", "none stated", "n/a"}:
+                if relation_res.normalized_role and relation_res.normalized_role.lower() not in {"none", "none reached", ""}:
+                    resolved_contact_relation = relation_res.normalized_role
+                else:
+                    resolved_contact_relation = ""
+
             row_res = RowResult(
                 row_index=r.row_index,
                 account_number=r.account_number,
                 ch_code=r.ch_code,
                 contact_person=r.contact_person,
-                contact_relation=r.contact_relation,
+                contact_relation=resolved_contact_relation,
                 raw_remarks=r.raw_remarks,
                 row_date=r.row_date,
                 cleaned_remarks=cleaned_res.cleaned,
@@ -754,12 +761,18 @@ class RemarksLabPipeline:
         import pandas as pd
         data = []
         for r in report.rows:
+            contact_rel = r.contact_relation
+            if not contact_rel or contact_rel.strip().lower() in {"", "none", "nan", "none stated", "n/a"}:
+                if r.normalized_role and r.normalized_role.lower() not in {"none", "none reached", ""}:
+                    contact_rel = r.normalized_role
+                else:
+                    contact_rel = ""
             row_dict = {
                 "Row Index": r.row_index,
                 "Account Number": r.account_number,
                 "CH Code": r.ch_code,
-                "Contact Person": r.contact_person,
-                "Contact Relation": r.contact_relation,
+                "Cardholder / Client Name": r.contact_person,
+                "Relation to CH": contact_rel,
                 "Category Label": r.category_label,
             }
             if r.concat_val:
@@ -807,12 +820,19 @@ class RemarksLabPipeline:
         for r in rows:
             summary = str(r.get("trimmed_statement") or r.get("summary") or "").strip()
             char_len = len(summary)
+            contact_rel = r.get("contact_relation", "")
+            if not contact_rel or str(contact_rel).strip().lower() in {"", "none", "nan", "none stated", "n/a"}:
+                norm_role = r.get("normalized_role", "")
+                if norm_role and str(norm_role).lower() not in {"none", "none reached", ""}:
+                    contact_rel = norm_role
+                else:
+                    contact_rel = ""
             row_dict = {
                 "Row Index": r.get("row_index", ""),
                 "Account Number": r.get("account_number", ""),
                 "CH Code": r.get("ch_code", ""),
-                "Contact Person": r.get("contact_person", ""),
-                "Contact Relation": r.get("contact_relation", ""),
+                "Cardholder / Client Name": r.get("contact_person", ""),
+                "Relation to CH": contact_rel,
                 "Category Label": r.get("category_label", ""),
             }
             if r.get("concat_val"):

@@ -1401,6 +1401,67 @@ def test_filter_out_blank_or_na_account_numbers():
     assert [r.account_number for r in parsed] == ["1000101", "1000102"]
 
 
+def test_contact_relation_autofill_from_classifier_when_blank():
+    """Verify that empty Contact Relation in raw input is auto-filled with classifier role in pipeline and export."""
+    from mc03.services.remarks_lab.parser import parse_field_result_sheet
+    from mc03.services.remarks_lab.pipeline import RemarksLabPipeline
+    import pandas as pd
+
+    csv_text = (
+        "Row Index,Account Number,Contact Person,Contact Relation,Remarks\n"
+        "1,1001,Juan Dela Cruz,,Spoke with wife Maria who promised to settle.\n"
+        "2,1002,Pedro Santos,,Client himself promised to pay next week.\n"
+        "3,1003,Maria Reyes,,Informed by neighbor that borrower moved out.\n"
+        "4,1004,Ana Lopez,,House closed and gate locked upon visit.\n"
+        "5,1005,Jose Rizal,Existing Aunt,Spoke with aunt who gave update.\n"
+    )
+    raw_rows = parse_field_result_sheet(csv_text.encode("utf-8"), test_mode=True)
+    pipeline = RemarksLabPipeline()
+    report = pipeline.process_rows(raw_rows, test_mode=True, run_ai=False)
+
+    # 1. Pipeline RowResult verification
+    assert report.rows[0].contact_relation == "Wife"
+    assert report.rows[0].category_label == "Representative"
+
+    assert report.rows[1].contact_relation == "Borrower (Self)"
+    assert report.rows[1].category_label == "Borrower"
+
+    assert report.rows[2].contact_relation == "Neighbor"
+    assert report.rows[2].category_label == "Informant"
+
+    assert report.rows[3].contact_relation == ""
+    assert report.rows[3].category_label == "none"
+
+    assert report.rows[4].contact_relation == "Existing Aunt"
+    assert report.rows[4].category_label == "Representative"
+
+    # 2. Excel export verification
+    excel_buf = pipeline.export_to_excel(report)
+    df = pd.read_excel(excel_buf)
+    assert "Cardholder / Client Name" in df.columns
+    assert "Relation to CH" in df.columns
+    assert "Category Label" in df.columns
+
+    assert df.loc[df["Account Number"] == 1001, "Cardholder / Client Name"].iloc[0] == "Juan Dela Cruz"
+    assert df.loc[df["Account Number"] == 1001, "Relation to CH"].iloc[0] == "Wife"
+    assert df.loc[df["Account Number"] == 1001, "Category Label"].iloc[0] == "Representative"
+
+    assert df.loc[df["Account Number"] == 1002, "Cardholder / Client Name"].iloc[0] == "Pedro Santos"
+    assert df.loc[df["Account Number"] == 1002, "Relation to CH"].iloc[0] == "Borrower (Self)"
+    assert df.loc[df["Account Number"] == 1002, "Category Label"].iloc[0] == "Borrower"
+
+    assert df.loc[df["Account Number"] == 1003, "Cardholder / Client Name"].iloc[0] == "Maria Reyes"
+    assert df.loc[df["Account Number"] == 1003, "Relation to CH"].iloc[0] == "Neighbor"
+    assert df.loc[df["Account Number"] == 1003, "Category Label"].iloc[0] == "Informant"
+
+    assert pd.isna(df.loc[df["Account Number"] == 1004, "Relation to CH"].iloc[0])
+    assert df.loc[df["Account Number"] == 1004, "Category Label"].iloc[0] == "none"
+
+    assert df.loc[df["Account Number"] == 1005, "Relation to CH"].iloc[0] == "Existing Aunt"
+    assert df.loc[df["Account Number"] == 1005, "Category Label"].iloc[0] == "Representative"
+
+
+
 
 
 
