@@ -39,6 +39,15 @@ export interface RowItem {
   classification_source: string;
   prompt_feedback?: string;
   is_edited?: boolean;
+  prompt_profile?: string;
+  provider_model?: string;
+  user_prompt?: string;
+  raw_model_json?: string;
+  final_json?: string;
+  overrides_applied?: string;
+  unit_status?: string;
+  needs_review?: boolean;
+  is_fallback?: boolean;
 }
 
 export interface Taxonomies {
@@ -60,6 +69,7 @@ export interface ProcessResponse {
   rule_based_fallback_count: number;
   model_tagalog: string;
   model_english: string;
+  is_password_protected?: boolean;
   rows: RowItem[];
 }
 

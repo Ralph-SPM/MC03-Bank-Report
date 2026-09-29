@@ -12,7 +12,7 @@ def test_default_paths_are_explicit_and_below_one_local_root(local_storage_root:
     settings = RuntimeSettings(storage_root=local_storage_root)
 
     assert settings.public_listener.port == 8001
-    assert settings.private_portal.port == 8000
+    assert settings.private_portal.port == 8080
     assert settings.protected_storage.root == local_storage_root.resolve()
     assert settings.database_path == local_storage_root.resolve() / "mc03.sqlite3"
     assert settings.raw_source_path == local_storage_root.resolve() / "raw_sources"

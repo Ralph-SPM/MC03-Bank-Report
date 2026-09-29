@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Loader2,
   CheckCircle2,
@@ -9,7 +9,6 @@ import {
   Languages,
   ShieldCheck,
   Cpu,
-  X,
 } from 'lucide-react';
 
 export type ProcessingStage =
@@ -49,6 +48,25 @@ export const ProcessingProgressModal: React.FC<ProcessingProgressProps> = ({
   modelTagalog = 'minimax-m2.5',
   onCancel,
 }) => {
+  const [showConfirmAbort, setShowConfirmAbort] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setShowConfirmAbort(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showConfirmAbort) {
+        setShowConfirmAbort(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, showConfirmAbort]);
+
   if (!isOpen) return null;
 
   const formatTime = (secs: number) => {
@@ -118,16 +136,6 @@ export const ProcessingProgressModal: React.FC<ProcessingProgressProps> = ({
               </p>
             </div>
           </div>
-
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-              title="Cancel processing"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
         </div>
 
         <div className="p-6 space-y-6">
@@ -278,12 +286,38 @@ export const ProcessingProgressModal: React.FC<ProcessingProgressProps> = ({
             </span>
           </div>
           {onCancel && (
-            <button
-              onClick={onCancel}
-              className="text-xs font-semibold text-slate-600 hover:text-red-600 transition-colors ml-3 shrink-0"
-            >
-              Abort
-            </button>
+            showConfirmAbort ? (
+              <div className="flex items-center space-x-2 ml-3 shrink-0 animate-in fade-in zoom-in-95 duration-150">
+                <span className="text-[11px] font-semibold text-rose-700 hidden sm:inline">
+                  Abort process?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowConfirmAbort(false);
+                    onCancel();
+                  }}
+                  className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 px-3 py-1.5 rounded-lg transition-all cursor-pointer shadow-xs"
+                >
+                  Yes, Abort
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmAbort(false)}
+                  className="text-xs font-semibold text-slate-600 hover:text-slate-800 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowConfirmAbort(true)}
+                className="text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 active:bg-red-100 border border-red-200 px-3 py-1.5 rounded-lg transition-all ml-3 shrink-0 cursor-pointer shadow-2xs"
+              >
+                Abort
+              </button>
+            )
           )}
         </div>
       </div>

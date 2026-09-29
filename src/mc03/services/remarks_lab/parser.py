@@ -11,6 +11,10 @@ import pandas as pd
 
 from datetime import date, datetime
 import re
+import msoffcrypto
+import pyzipper
+
+DEFAULT_WORKBOOK_PASSWORD = "SPM1234"
 
 
 @dataclass
@@ -28,6 +32,7 @@ class RawRemarkRow:
     row_date: str = ""
     client_status: str = ""
     unit_status: str = ""
+    unit_substatus: str = ""
     raw_message: str = ""
     final_remarks: str = ""
     evaluated_csu: str = ""
@@ -44,6 +49,7 @@ class ParsedRows(list):
     is_already_evaluated: bool = False
     has_manual_csu: bool = False
     has_manual_rfd: bool = False
+    is_password_protected: bool = False
 
 
 COLUMN_ALIASES = {
@@ -92,6 +98,9 @@ COLUMN_ALIASES = {
     "unit_status": [
         "unit status", "unit_status", "unit status_1"
     ],
+    "unit_substatus": [
+        "unit substatus", "unit_substatus", "unit substatus 2", "unit_substatus_2", "unit substatus 1"
+    ],
     "raw_message": [
         "raw remark", "raw_remark", "raw remarks", "message", "raw_message", "collector_message", "field_message", "raw message"
     ],
@@ -103,7 +112,9 @@ COLUMN_ALIASES = {
     ],
     "concat": [
         "concat", "concatenate", "concat_col", "concat_column", "concat column",
-        "concat_key", "concat key", "key", "account_concat", "ch_concat", "concatenated"
+        "concat_key", "concat key", "key", "account_concat", "ch_concat", "concatenated",
+        "field status", "field_status", "field disposition", "disposition",
+        "status/substatus", "status / substatus", "concat status"
     ]
 }
 
@@ -192,11 +203,93 @@ def _parse_row_date(val: Any) -> Optional[pd.Timestamp]:
     return None
 
 
+def unlock_workbook_bytes(
+    raw_bytes: bytes,
+    password: str = DEFAULT_WORKBOOK_PASSWORD,
+) -> tuple[bytes, bool]:
+    """Check if raw_bytes is a password-protected workbook or zip archive, and unlock if needed.
+
+    Returns:
+        tuple of (unlocked_bytes, was_encrypted)
+    """
+    if not raw_bytes:
+        return raw_bytes, False
+
+    # 1. Check for Office Open XML / OLE compound file encryption (msoffcrypto)
+    try:
+        office_file = msoffcrypto.OfficeFile(io.BytesIO(raw_bytes))
+        if office_file.is_encrypted():
+            decrypted_stream = io.BytesIO()
+            office_file.load_key(password=password)
+            office_file.decrypt(decrypted_stream)
+            decrypted_bytes = decrypted_stream.getvalue()
+            if decrypted_bytes:
+                return decrypted_bytes, True
+    except msoffcrypto.exceptions.InvalidKeyError:
+        raise ValueError(
+            f"The workbook is password-protected, but failed to unlock with password '{password}'."
+        )
+    except Exception:
+        # Not an encrypted Office file or plain format
+        pass
+
+    # 2. Check for password-protected or standard ZIP archive (pyzipper)
+    if raw_bytes.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        try:
+            with pyzipper.AESZipFile(io.BytesIO(raw_bytes)) as zf:
+                namelist = zf.namelist()
+                is_inner_office_zip = any(
+                    name in ("[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml")
+                    for name in namelist
+                )
+                if not is_inner_office_zip:
+                    has_encryption = any(info.flag_bits & 0x1 for info in zf.infolist())
+                    if has_encryption:
+                        zf.setpassword(password.encode("utf-8"))
+
+                    target_candidate = None
+                    for name in namelist:
+                        low = name.lower()
+                        if not low.startswith("__macosx") and (
+                            low.endswith(".xlsx") or low.endswith(".xls") or low.endswith(".csv")
+                        ):
+                            target_candidate = name
+                            break
+
+                    if target_candidate:
+                        try:
+                            extracted = zf.read(target_candidate)
+                            inner_unlocked, inner_was_enc = unlock_workbook_bytes(
+                                extracted, password=password
+                            )
+                            return inner_unlocked, (has_encryption or inner_was_enc)
+                        except Exception:
+                            try:
+                                zf.setpassword(password.encode("ascii"))
+                                extracted = zf.read(target_candidate)
+                                inner_unlocked, inner_was_enc = unlock_workbook_bytes(
+                                    extracted, password=password
+                                )
+                                return inner_unlocked, True
+                            except Exception:
+                                if has_encryption:
+                                    raise ValueError(
+                                        f"The zip archive is password-protected, but failed to extract with password '{password}'."
+                                    )
+        except ValueError:
+            raise
+        except Exception:
+            pass
+
+    return raw_bytes, False
+
+
 def parse_field_result_sheet(
     source: str | Path | bytes | io.BytesIO,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     test_mode: bool = False,
+    password: Optional[str] = DEFAULT_WORKBOOK_PASSWORD,
 ) -> ParsedRows:
     """
     Parse the RCBC workbook targeting the FIELD RSULT (or similar) sheet.
@@ -215,6 +308,11 @@ def parse_field_result_sheet(
             is_csv = True
         with open(source, "rb") as f:
             raw_bytes = f.read()
+
+    effective_password = password if password is not None else DEFAULT_WORKBOOK_PASSWORD
+    was_encrypted = False
+    if raw_bytes is not None:
+        raw_bytes, was_encrypted = unlock_workbook_bytes(raw_bytes, password=effective_password)
 
     # If raw_bytes does not start with Excel signatures, detect as CSV
     if raw_bytes is not None and not is_csv:
@@ -268,7 +366,9 @@ def parse_field_result_sheet(
                     pass
 
     if df_raw.empty:
-        return ParsedRows()
+        empty_rows = ParsedRows()
+        empty_rows.is_password_protected = was_encrypted
+        return empty_rows
 
     # Flatten all alias terms for header detection
     all_alias_terms = set()
@@ -460,6 +560,7 @@ def parse_field_result_sheet(
             row_date=row_date_str,
             client_status=_get_val(row, "client_status"),
             unit_status=_get_val(row, "unit_status"),
+            unit_substatus=_get_val(row, "unit_substatus"),
             raw_message=raw_msg_val,
             final_remarks=resolved_final,
             evaluated_csu=_get_val(row, "evaluated_csu"),
@@ -472,4 +573,5 @@ def parse_field_result_sheet(
         rows.append(raw_row)
 
     rows.total_unfiltered_rows = total_valid_rows
+    rows.is_password_protected = was_encrypted
     return rows

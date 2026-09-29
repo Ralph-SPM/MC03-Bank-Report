@@ -753,7 +753,7 @@
         </div>
 
         <!-- Hidden File Input -->
-        <input type="file" id="workbookFileInput" name="workbook" accept=".xlsx,.xls,.csv" class="hidden" required>
+        <input type="file" id="workbookFileInput" name="workbook" accept=".xlsx,.xls,.csv,.zip" class="hidden" required>
 
         <!-- Dropzone / Empty File State -->
         <div id="dropzoneArea" onclick="document.getElementById('workbookFileInput').click()" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl p-5 text-center cursor-pointer transition-colors bg-white hover:bg-indigo-50/20 group">
@@ -766,7 +766,7 @@
                 <span class="text-indigo-600 group-hover:underline">Upload FIELD RSULT Workbook or Test CSV</span> or drag and drop
               </p>
               <p class="text-[11px] text-slate-500 font-mono mt-0.5">
-                .xlsx, .xls, or exported Test Mode .csv
+                .xlsx, .xls, .csv, or password-protected file (auto-unlocked with SPM1234)
               </p>
             </div>
           </div>

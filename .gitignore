@@ -26,6 +26,8 @@ output/
 outputs/
 exports/
 reports/
+storage/evaluation/
+new instruction.txt
 
 # Spreadsheet dumps & raw bank workbooks (prevents accidental commit of PII)
 *.xlsx

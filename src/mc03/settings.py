@@ -24,7 +24,7 @@ class ServiceEndpoint(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     host: str = "127.0.0.1"
-    port: PositiveInt = Field(default=8000, le=65535)
+    port: PositiveInt = Field(default=8080, le=65535)
 
 
 class RuntimeSettings(BaseSettings):
@@ -49,7 +49,7 @@ class RuntimeSettings(BaseSettings):
         default_factory=lambda: ServiceEndpoint(host="127.0.0.1", port=8001)
     )
     private_portal: ServiceEndpoint = Field(
-        default_factory=lambda: ServiceEndpoint(host="127.0.0.1", port=8000)
+        default_factory=lambda: ServiceEndpoint(host="127.0.0.1", port=8080)
     )
     runner_id: str = Field(default="local-runner", min_length=1, max_length=128)
 
@@ -103,7 +103,7 @@ class RuntimeSettings(BaseSettings):
     def demo_bind(self) -> ServiceEndpoint:
         """Return the single loopback bind target for the RCBC demo portal.
 
-        The on-demand demo binds exclusively to ``127.0.0.1:8000`` and does not
+        The on-demand demo binds exclusively to ``127.0.0.1:8080`` and does not
         mount the parent spec's public Viber webhook listener. This accessor
         names that boundary explicitly so the web layer never binds to a
         non-loopback interface or an unexpected port.

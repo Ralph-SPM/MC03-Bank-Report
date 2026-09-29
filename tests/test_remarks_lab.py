@@ -315,7 +315,7 @@ def test_rcbc_226_rows_benchmark_accuracy():
             "Relation": "Neighbor",
             "Remarks": "House closed gate locked, neighbor said not around",
             "CSU": "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)",
-            "RFD": "NO CLIENT / REPRESENTATIVE REACHED",
+            "RFD": "",
         })
     # 26 Explicit hardship rows
     hardships = [

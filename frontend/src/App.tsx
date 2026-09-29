@@ -55,6 +55,8 @@ export const App: React.FC = () => {
   const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<number | null>(null);
   const [lastElapsedSeconds, setLastElapsedSeconds] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // UI state
   const [isLoading, setIsLoading] = useState(false);
@@ -95,27 +97,62 @@ export const App: React.FC = () => {
   }, []);
 
   const applyProcessedData = (data: any) => {
+    const pwMsg = data.is_password_protected ? ' (Protected file unlocked)' : '';
     if (activeTab === 'processor') {
       setProcessorRows(data.rows || []);
       setProcessorStats(data);
-      showToast(`Successfully processed ${data.total_rows} field remarks!`);
+      showToast(`Successfully processed ${data.total_rows} field remarks!${pwMsg}`);
     } else {
       setLabReport(data);
       setLabRows(data.rows || []);
-      showToast(`Completed benchmark analysis on ${data.total_rows} test records!`);
+      showToast(`Completed benchmark analysis on ${data.total_rows} test records!${pwMsg}`);
     }
+  };
+
+  const handleCancelProcessing = () => {
+    // 1. Abort network request immediately
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {
+        console.error('Failed to abort fetch:', e);
+      }
+      abortControllerRef.current = null;
+    }
+
+    // 2. Cancel active stream reader
+    if (readerRef.current) {
+      try {
+        readerRef.current.cancel();
+      } catch (e) {
+        console.error('Failed to cancel stream reader:', e);
+      }
+      readerRef.current = null;
+    }
+
+    // 3. Clear elapsed timer
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    // 4. Immediately close modal and reset loading state
+    setIsProcessingModalOpen(false);
+    setIsLoading(false);
+    showToast('Processing cancelled.');
   };
 
   const handleProcessWorkbook = async (
     file: File,
     dateFrom: string,
-    dateTo: string
+    dateTo: string,
+    password: string = 'SPM1234'
   ) => {
     setIsLoading(true);
     setIsProcessingModalOpen(true);
     setProcessPercent(5);
     setProcessStage('parsing');
-    setProcessStatusMessage('Uploading workbook and extracting column headers...');
+    setProcessStatusMessage('Uploading workbook and checking password protection / columns...');
     setProcessCompletedRows(0);
     setProcessTotalRows(0);
     setProcessElapsedSeconds(0);
@@ -125,7 +162,8 @@ export const App: React.FC = () => {
     abortControllerRef.current = abortController;
 
     const startTime = Date.now();
-    const timerInterval = setInterval(() => {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       setProcessElapsedSeconds(elapsed);
     }, 1000);
@@ -134,6 +172,7 @@ export const App: React.FC = () => {
     formData.append('workbook', file);
     if (dateFrom) formData.append('date_from', dateFrom);
     if (dateTo) formData.append('date_to', dateTo);
+    formData.append('password', password || 'SPM1234');
     formData.append('run_ai', 'true');
 
     try {
@@ -169,13 +208,15 @@ export const App: React.FC = () => {
       if (!reader) {
         throw new Error('ReadableStream is not supported by your browser.');
       }
+      readerRef.current = reader;
 
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
 
       while (true) {
+        if (abortController.signal.aborted) break;
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done || abortController.signal.aborted) break;
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split('\n\n');
@@ -225,16 +266,20 @@ export const App: React.FC = () => {
         }
       }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        showToast('Processing cancelled by user.');
+      if (err.name === 'AbortError' || abortController.signal.aborted) {
+        showToast('Processing cancelled.');
       } else {
         alert(`Error processing file: ${err.message}`);
       }
       setIsProcessingModalOpen(false);
     } finally {
-      clearInterval(timerInterval);
-      setIsLoading(false);
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      readerRef.current = null;
       abortControllerRef.current = null;
+      setIsLoading(false);
     }
   };
 
@@ -363,11 +408,7 @@ export const App: React.FC = () => {
         estimatedSecondsRemaining={estimatedSecondsRemaining}
         modelEnglish={activeProfile?.model_english || processorStats.model_english || 'glm-5'}
         modelTagalog={activeProfile?.model_tagalog || processorStats.model_tagalog || 'minimax-m2.5'}
-        onCancel={() => {
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-          }
-        }}
+        onCancel={handleCancelProcessing}
       />
 
       {/* Settings Modal */}

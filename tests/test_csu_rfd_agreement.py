@@ -101,9 +101,62 @@ def test_canonicalize_empty_rfd_for_unlocated_address():
     assert rfd == ""
 
 
+def test_canonicalize_further_visit_three_rfd_options_only():
+    """Verify that FOR FURTHER VISIT CSU strictly permits ONLY 3 RFD options:
+    "", "MOVED OUT", and "DECEASED BORROWER".
+    If the RFD is any other option, CSU is flipped to NOT for further visit.
+    """
+    csu_ffv = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+
+    # 1. Permitted option 1: empty string ""
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "")
+    assert csu == csu_ffv
+    assert rfd == ""
+
+    # 2. Permitted option 2: MOVED OUT
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "MOVED OUT")
+    assert csu == csu_ffv
+    assert rfd == "MOVED OUT"
+
+    # 3. Permitted option 3: DECEASED BORROWER
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "DECEASED BORROWER")
+    assert csu == csu_ffv
+    assert rfd == "DECEASED BORROWER"
+
+    # 4. Prohibited: NO CLIENT/ REPRESENTATIVE -> flips CSU to CLIENT POSITIVE (WITHOUT Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "NO CLIENT/ REPRESENTATIVE")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+    assert rfd == "NO CLIENT/ REPRESENTATIVE"
+
+    # 5. Prohibited: Hardships (e.g. CALAMITY) -> flips CSU to CLIENT POSITIVE (WITHOUT Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "CALAMITY")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+    assert rfd == "CALAMITY"
+
+    # 6. Prohibited: Hardships (e.g. THIRD PARTY USER) -> flips CSU to CLIENT POSITIVE (WITHOUT Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "THIRD PARTY USER")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+    assert rfd == "THIRD PARTY USER"
+
+    # 7. Prohibited: Hardships (e.g. MEDICAL EXPENSE) -> flips CSU to CLIENT POSITIVE (WITHOUT Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "MEDICAL EXPENSE")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+    assert rfd == "MEDICAL EXPENSE"
+
+    # 8. Prohibited: Representative refusal -> flips CSU to CLIENT POSITIVE (WITHOUT Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "REPRESENTATIVE REFUSED TO DISCLOSE RFD")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+    assert rfd == "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+
+    # 9. Prohibited: Borrower refusal -> flips CSU to CLIENT POSITIVE (WITH Actual Contact)
+    csu, rfd = canonicalize_csu_rfd(csu_ffv, "BORROWER REFUSED TO DISCLOSE RFD")
+    assert csu == "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+    assert rfd == "BORROWER REFUSED TO DISCLOSE RFD"
+
+
 def test_prompt_contains_critical_ground_truth_rules():
     """Verify that TwoTierRemarksSummarizer system prompt contains all key operational rules."""
-    summarizer = TwoTierRemarksSummarizer(api_key="sk-test")
+    summarizer = TwoTierRemarksSummarizer(api_key="sk-test", profile_id="default")
     messages = summarizer._build_prompt("test remark", contact_person="John Doe")
     content = messages[0]["content"]
 
@@ -131,7 +184,11 @@ def test_prompt_contains_critical_ground_truth_rules():
     # Rule 7: Case filing restriction
     assert "NEVER use 'For CASE FILING-...' CSUs unless the remark explicitly mentions 'case filing'" in content
 
-    # Rule 8: Rich reasoning explaining alternatives
+    # Rule 8: 3-Option RFD Restriction for FOR FURTHER VISIT CSU
+    assert "MANDATORY 3-OPTION RESTRICTION FOR FOR FURTHER VISIT CSU" in content
+    assert "ONLY HAS 3 PERMISSIBLE RFD OPTIONS" in content
+
+    # Rule 9: Rich reasoning explaining alternatives
     assert "csu_reasoning" in content
     assert "why alternatives were disqualified" in content or "why alternatives were rejected" in content
 

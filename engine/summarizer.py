@@ -229,28 +229,86 @@ def canonicalize_csu_rfd(
     rfd: str | None,
     remark: str = "",
     concat_val: str = "",
-) -> tuple[str | None, str]:
-    """Sanitizes LLM outputs against official RCBC matrices and enforces operational consistency."""
+    unit_status_val: str = "",
+    return_overrides: bool = False,
+) -> tuple[str | None, str] | tuple[str | None, str, list[dict[str, Any]]]:
+    """Sanitizes LLM outputs against official RCBC matrices and enforces operational consistency.
+
+    If return_overrides is True, returns (csu_final, rfd_final, overrides_list)
+    where overrides_list contains dicts with keys: field, before, after, rule.
+    """
     csu_str = (csu or "").strip()
     rfd_str = (rfd or "").strip()
     rem_lower = (remark or "").lower()
     concat_upper = (concat_val or "").strip().upper()
+    unit_upper = (unit_status_val or "").strip().upper()
+
+    overrides: list[dict[str, Any]] = []
+
+    def _record(field: str, before: Any, after: Any, rule: str) -> None:
+        b_str = "" if before is None else str(before).strip()
+        a_str = "" if after is None else str(after).strip()
+        if b_str != a_str:
+            overrides.append({"field": field, "before": b_str, "after": a_str, "rule": rule})
 
     # Utilize structured Field Status / Substatus (CONCAT) when available
     if concat_upper and concat_upper != "NONE":
         if any(k in concat_upper for k in ["DENIED ENTRY", "NOT ALLOWED TO ENTER"]):
-            return "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", ""
+            is_residency_confirmed = (
+                "VERIFIED" in concat_upper
+                or "POS" in concat_upper
+                or any(k in rem_lower for k in ["still residing", "resides at", "lives there", "confirmed residing", "verified address"])
+            )
+            if is_residency_confirmed:
+                new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+                new_rfd = "NO CLIENT/ REPRESENTATIVE"
+                _record("csu", csu_str, new_csu, "concat_denied_entry_verified_residency")
+                _record("rfd", rfd_str, new_rfd, "concat_denied_entry_verified_residency")
+                if return_overrides:
+                    return new_csu, new_rfd, overrides
+                return new_csu, new_rfd
+            else:
+                new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+                new_rfd = ""
+                _record("csu", csu_str, new_csu, "concat_denied_entry_unverified_residency")
+                _record("rfd", rfd_str, new_rfd, "concat_denied_entry_unverified_residency")
+                if return_overrides:
+                    return new_csu, new_rfd, overrides
+                return new_csu, new_rfd
+
         if "NEGUNIT NOT SEEN" in concat_upper:
             if not any(k in rem_lower for k in ["talk to", "spoke to", "met client"]):
-                return "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", ""
+                new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+                new_rfd = ""
+                _record("csu", csu_str, new_csu, "concat_neg_unit_not_seen")
+                _record("rfd", rfd_str, new_rfd, "concat_neg_unit_not_seen")
+                if return_overrides:
+                    return new_csu, new_rfd, overrides
+                return new_csu, new_rfd
+
         if "PTPPTP" in concat_upper:
-            csu_str = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+            new_csu = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+            _record("csu", csu_str, new_csu, "concat_ptp")
+            csu_str = new_csu
+
         if "REPOREPO" in concat_upper or "REPOPAYMENT" in concat_upper:
-            csu_str = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+            new_csu = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+            _record("csu", csu_str, new_csu, "concat_repo")
+            csu_str = new_csu
+
+        if "TPCLAIMING FULLY PAID" in concat_upper:
+            new_csu = "PENDING RECON"
+            new_rfd = "PENDING RECON"
+            _record("csu", csu_str, new_csu, "concat_tp_claiming_fully_paid")
+            _record("rfd", rfd_str, new_rfd, "concat_tp_claiming_fully_paid")
+            csu_str = new_csu
+            rfd_str = new_rfd
 
     # Normalize invalid 'With Commitment to Pay' to standard RCBC CSU
     if csu_str.lower() == "with commitment to pay" or "with commitment to pay" in csu_str.lower():
-        csu_str = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+        new_csu = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+        _record("csu", csu_str, new_csu, "normalize_with_commitment_to_pay")
+        csu_str = new_csu
 
     # 1. Strip invalid sub-suffixes (- Both, - Client, - Unit) from UNIT NEGATIVE
     csu_upper = csu_str.upper()
@@ -259,12 +317,17 @@ def canonicalize_csu_rfd(
         csu_upper = re.sub(r"\s*-\s*(BOTH|CLIENT|UNIT)\s*\)?", ")", csu_upper).strip()
         csu_upper = re.sub(r"\)+\s*$", ")", csu_upper)
         if "WITHOUT" in csu_upper:
-            csu_str = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
         elif "WITH" in csu_upper:
-            csu_str = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+        else:
+            new_csu = csu_str
+        _record("csu", csu_str, new_csu, "strip_invalid_sub_suffixes_unit_neg")
+        csu_str = new_csu
 
     # 2. Strict / fuzzy matching against OFFICIAL_RCBC_CSU_OPTIONS
     matched_csu = None
+    csu_upper = csu_str.upper()
     for opt in OFFICIAL_RCBC_CSU_OPTIONS:
         if csu_upper == opt.upper():
             matched_csu = opt
@@ -288,45 +351,72 @@ def canonicalize_csu_rfd(
         )
         if not is_explicit_case_filing:
             if "WITH ACTUAL CONTACT" in csu_final.upper():
-                csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+                new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
             else:
-                csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+                new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            _record("csu", csu_final, new_csu, "guard_unsupported_case_filing")
+            csu_final = new_csu
 
     # 4. Strict / fuzzy matching against OFFICIAL_RCBC_RFD_OPTIONS
     matched_rfd = ""
     rfd_upper = rfd_str.upper()
-    if rfd_upper in ("", "EMPTY", "[EMPTY]", "NONE", "NULL") or "EMPTY" in rfd_upper or "NO INFO" in rfd_upper:
+    if rfd_upper in ("", "EMPTY", "[EMPTY]", "NONE", "NULL", "NAN", "<NA>") or "EMPTY" in rfd_upper or "NO INFO" in rfd_upper:
         matched_rfd = ""
     else:
-        for opt in OFFICIAL_RCBC_RFD_OPTIONS:
-            if rfd_upper == opt.upper():
-                matched_rfd = opt
-                break
-        if not matched_rfd:
-            norm_rfd = re.sub(r"[^a-zA-Z0-9]+", " ", rfd_upper).strip()
+        # Standard operational replacements
+        if rfd_upper in ("NO CLIENT / REPRESENTATIVE REACHED", "NO CLIENT/REPRESENTATIVE REACHED", "NO CLIENT REACHED", "NO REPRESENTATIVE REACHED"):
+            matched_rfd = "NO CLIENT/ REPRESENTATIVE"
+        elif rfd_upper in ("THIRD-PARTY USER", "3RD PARTY USER", "3RD-PARTY USER"):
+            matched_rfd = "THIRD PARTY USER"
+        elif rfd_upper in ("DECEASED BORROWER", "DECEASED"):
+            matched_rfd = "DECEASED BORROWER"
+        elif rfd_upper in ("MOVED OUT", "MOVE OUT"):
+            matched_rfd = "MOVED OUT"
+        elif rfd_upper == "MIGRATION":
+            matched_rfd = "MIGRATION"
+        else:
             for opt in OFFICIAL_RCBC_RFD_OPTIONS:
-                if norm_rfd == re.sub(r"[^a-zA-Z0-9]+", " ", opt.upper()).strip():
+                if rfd_upper == opt.upper():
                     matched_rfd = opt
                     break
             if not matched_rfd:
-                matched_rfd = rfd_str
+                norm_rfd = re.sub(r"[^a-zA-Z0-9]+", " ", rfd_upper).strip()
+                for opt in OFFICIAL_RCBC_RFD_OPTIONS:
+                    if norm_rfd == re.sub(r"[^a-zA-Z0-9]+", " ", opt.upper()).strip():
+                        matched_rfd = opt
+                        break
+                if not matched_rfd:
+                    matched_rfd = rfd_str
 
-    # Standardize casing for common operational RFD codes
-    if matched_rfd.upper() in ("DECEASED BORROWER", "DECEASED"):
-        matched_rfd = "DECEASED BORROWER"
-    elif matched_rfd.upper() in ("MOVED OUT", "MOVE OUT"):
-        matched_rfd = "MOVED OUT"
-
-    # 4a. Gated Entry / Security Guard Blocked / Pass Fee / Uncooperative at gate
-    is_blocked = any(
+    # 4a. Gated Entry / Security Guard Blocked / Pass Fee (Gated to blocked entry context)
+    is_blocked_narrative = any(
         k in rem_lower
         for k in [
             "refuse to entry", "refused to let me enter", "not let me proceed",
-            "ticket pass", "not allowed to enter", "denied entry", "uncooperative"
+            "ticket pass", "not allowed to enter", "denied entry",
+            "uncooperative at gate", "guard uncooperative", "uncooperative guard"
         ]
     )
-    if is_blocked:
-        return "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", ""
+    if is_blocked_narrative:
+        is_residency_confirmed = (
+            any(k in rem_lower for k in ["still residing", "resides at", "lives there", "confirmed residing", "verified address"])
+            or ("pos" in concat_upper and "unverified" not in concat_upper)
+        )
+        if is_residency_confirmed:
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            new_rfd = "NO CLIENT/ REPRESENTATIVE"
+            _record("csu", csu_final, new_csu, "narrative_denied_entry_verified_residency")
+            _record("rfd", matched_rfd, new_rfd, "narrative_denied_entry_verified_residency")
+            csu_final, matched_rfd = new_csu, new_rfd
+        else:
+            new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+            new_rfd = ""
+            _record("csu", csu_final, new_csu, "narrative_denied_entry_unverified_residency")
+            _record("rfd", matched_rfd, new_rfd, "narrative_denied_entry_unverified_residency")
+            csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
+        return csu_final, matched_rfd
 
     # 4b. Unit-Only Scan / Unit not seen with no client contact
     is_unit_only_scan = (
@@ -336,9 +426,16 @@ def canonicalize_csu_rfd(
         or ("unit is nowhere to be found" in rem_lower and "looked and scanned" in rem_lower)
         or ("unit not seen during visit, i went around the area" in rem_lower)
         or ("negative unit" in rem_lower and len(rem_lower.split()) <= 4)
+        or bool(re.search(r"\bpos\s+address\s+neg(?:ative)?\s+unit\b", rem_lower))
     )
     if is_unit_only_scan:
-        return "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", ""
+        new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+        new_rfd = ""
+        _record("csu", csu_final, new_csu, "unit_only_scan")
+        _record("rfd", matched_rfd, new_rfd, "unit_only_scan")
+        if return_overrides:
+            return new_csu, new_rfd, overrides
+        return new_csu, new_rfd
 
     # 4c. Unverified Residency / No person available to confirm / Client unknown at brgy / Not listed
     is_unverified = (
@@ -356,19 +453,23 @@ def canonicalize_csu_rfd(
         or ("masterlist of tenants and owners the clients name is not known" in rem_lower)
     )
     if is_unverified:
-        return "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", ""
+        new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+        new_rfd = ""
+        _record("csu", csu_final, new_csu, "unverified_residency")
+        _record("rfd", matched_rfd, new_rfd, "unverified_residency")
+        if return_overrides:
+            return new_csu, new_rfd, overrides
+        return new_csu, new_rfd
 
     # 4d. Promise to Pay (PTP) with direct borrower contact
     if "ptp as per client talk to agent" in rem_lower or ("ch is ptp" in rem_lower and "talk to agent" in rem_lower):
-        csu_final = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
-        if not matched_rfd or matched_rfd == "NO CLIENT/ REPRESENTATIVE":
-            matched_rfd = "BORROWER REFUSED TO DISCLOSE RFD"
-        return csu_final, matched_rfd
-
-    # 4e. Direct borrower in-person meeting discussing surrender or settlement
-    if "deep skip to bago city college and talk to client" in rem_lower or "as per ch mr mark gregor corpuz" in rem_lower:
-        csu_final = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
-        matched_rfd = "BORROWER REFUSED TO DISCLOSE RFD"
+        new_csu = "CLIENT POSITIVE/UNIT POSITIVE (WITH Actual Contact - Both)"
+        new_rfd = "BORROWER REFUSED TO DISCLOSE RFD" if (not matched_rfd or matched_rfd == "NO CLIENT/ REPRESENTATIVE") else matched_rfd
+        _record("csu", csu_final, new_csu, "ptp_direct_contact")
+        _record("rfd", matched_rfd, new_rfd, "ptp_direct_contact")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
         return csu_final, matched_rfd
 
     # 4f. Account Confirmed Resolved / Settled per Agent or Bank
@@ -383,21 +484,82 @@ def canonicalize_csu_rfd(
         )
     )
     if is_agent_resolved:
-        csu_final = "CLIENT POSITIVE/UNIT POSITIVE (WITHOUT Actual Contact - Client)"
-        if matched_rfd.upper() in ("PENDING RECON", "", "NO INFO", "NULL", "NONE"):
-            matched_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+        new_csu = "CLIENT POSITIVE/UNIT POSITIVE (WITHOUT Actual Contact - Client)"
+        new_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+        _record("csu", csu_final, new_csu, "agent_confirmed_resolved")
+        _record("rfd", matched_rfd, new_rfd, "agent_confirmed_resolved")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
         return csu_final, matched_rfd
 
-    # 5. MOVED OUT absolute operational priority over hardships
-    is_moved_out = bool(
-        re.search(
-            r"\bmoved\s+out\b|\bleft\s+(?:the\s+)?area\b|\bno\s+longer\s+at\s+(?:the\s+)?house\b|\bnot\s+living\b|\bvacated\b|\brenters?\s+(?:don't|dont)\s+know\b",
-            rem_lower,
-        )
+    # 5. MOVED OUT absolute operational priority over hardships (requires person confirming moved or lives elsewhere)
+    is_temporary_absence = any(
+        w in rem_lower
+        for w in [
+            "business trip", "sister is residing", "client left without informing",
+            "medical check", "check-up", "checkup", "hospital", "went to manila",
+            "at work", "working", "vacation", "visiting relatives", "just visiting", "abroad", "dubai", "out of area"
+        ]
     )
-    if is_moved_out and not ("business trip" in rem_lower or "positive address but only sister is residing" in rem_lower or "client left without informing" in rem_lower):
-        matched_rfd = "MOVED OUT"
-        csu_final = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+    is_moved_out = (
+        bool(
+            re.search(
+                r"\bmove(?:d)?\s+out\b|\btransferred\s+(?:residence|address)\b|\bno\s+longer\s+(?:residing|living|at\s+(?:the\s+)?(?:house|address))\b|\bnot\s+resides?\b|\balready\s+not\s+reside\b|\bvacated\b|\brenters?\s+(?:don't|dont)\s+know\b|\bnew\s+renters?\b|\bnew\s+tenant\b",
+                rem_lower,
+            )
+        )
+        or (
+            bool(re.search(r"\bleft\s+(?:the\s+)?area\b", rem_lower))
+            and any(k in rem_lower for k in ["permanently", "relocated", "lives elsewhere", "transferred"])
+        )
+        or ("negclient moved out" in concat_upper and any(k in rem_lower for k in ["move out", "moved out", "renter", "tenant", "caretaker", "no longer"]))
+    )
+    if is_moved_out and not is_temporary_absence:
+        new_rfd = "MOVED OUT"
+        new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+        _record("rfd", matched_rfd, new_rfd, "moved_out_priority")
+        _record("csu", csu_final, new_csu, "moved_out_priority")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
+        return csu_final, matched_rfd
+
+    # 5a. Deceased borrower priority
+    is_deceased = (
+        "deceased" in rem_lower
+        or "passed away" in rem_lower
+        or "namatay" in rem_lower
+        or "patay na" in rem_lower
+        or "negdeceased" in concat_upper
+    )
+    if is_deceased:
+        new_rfd = "DECEASED BORROWER"
+        new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+        _record("rfd", matched_rfd, new_rfd, "deceased_priority")
+        _record("csu", csu_final, new_csu, "deceased_priority")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
+        return csu_final, matched_rfd
+
+    # 5b. Demolished house / relocated establishment (R3) -> FFV + blank RFD
+    is_demolished_or_relocated = any(
+        w in rem_lower
+        for w in [
+            "demolished", "house demolished", "building demolished",
+            "bank relocated", "business relocated", "company relocated",
+            "store closed permanently", "shop demolished"
+        ]
+    )
+    if is_demolished_or_relocated:
+        new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+        new_rfd = ""
+        _record("csu", csu_final, new_csu, "demolished_or_relocated_establishment")
+        _record("rfd", matched_rfd, new_rfd, "demolished_or_relocated_establishment")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
         return csu_final, matched_rfd
 
     # 6. Informant vs Family Representative refusal guard
@@ -411,41 +573,91 @@ def canonicalize_csu_rfd(
         ]
     )
     if has_family:
-        # Check if unit was surrendered to other ECA or carnapped
         if "already vs to other eca" in rem_lower or "vs to other eca" in rem_lower:
-            csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
-            matched_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            new_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+            _record("csu", csu_final, new_csu, "family_surrender_to_other_eca")
+            _record("rfd", matched_rfd, new_rfd, "family_surrender_to_other_eca")
+            csu_final, matched_rfd = new_csu, new_rfd
+            if return_overrides:
+                return csu_final, matched_rfd, overrides
             return csu_final, matched_rfd
         if "carnapped" in rem_lower or matched_rfd == "SCAMMED":
-            matched_rfd = "SCAMMED"
-            csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            new_rfd = "SCAMMED"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            _record("rfd", matched_rfd, new_rfd, "family_unit_carnapped")
+            _record("csu", csu_final, new_csu, "family_unit_carnapped")
+            csu_final, matched_rfd = new_csu, new_rfd
+            if return_overrides:
+                return csu_final, matched_rfd, overrides
             return csu_final, matched_rfd
         if "deceased" in rem_lower or matched_rfd == "DECEASED BORROWER":
-            matched_rfd = "DECEASED BORROWER"
-            csu_final = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+            new_rfd = "DECEASED BORROWER"
+            new_csu = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+            _record("rfd", matched_rfd, new_rfd, "family_deceased_borrower")
+            _record("csu", csu_final, new_csu, "family_deceased_borrower")
+            csu_final, matched_rfd = new_csu, new_rfd
+            if return_overrides:
+                return csu_final, matched_rfd, overrides
             return csu_final, matched_rfd
         if "working in palawan and rarely visits" in rem_lower:
-            matched_rfd = "WORK RELOCATION"
-            csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            new_rfd = "WORK RELOCATION"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            _record("rfd", matched_rfd, new_rfd, "family_work_relocation")
+            _record("csu", csu_final, new_csu, "family_work_relocation")
+            csu_final, matched_rfd = new_csu, new_rfd
+            if return_overrides:
+                return csu_final, matched_rfd, overrides
             return csu_final, matched_rfd
-        # If family representative is reached and no explicit hardship stated
         if matched_rfd in ("", "NO CLIENT/ REPRESENTATIVE", "WORK RELOCATION"):
-            matched_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
-            csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
-        return csu_final, matched_rfd
+            new_rfd = "REPRESENTATIVE REFUSED TO DISCLOSE RFD"
+            new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            _record("rfd", matched_rfd, new_rfd, "family_rep_baseline_refusal")
+            _record("csu", csu_final, new_csu, "family_rep_baseline_refusal")
+            csu_final, matched_rfd = new_csu, new_rfd
+            if return_overrides:
+                return csu_final, matched_rfd, overrides
+            return csu_final, matched_rfd
 
     # 7. Informant temporary absence / neighbor typo
     if "aa pee maam aliyah" in rem_lower:  # typo 'niehnor' = neighbor
-        return "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)", "NO CLIENT/ REPRESENTATIVE"
+        new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+        new_rfd = "NO CLIENT/ REPRESENTATIVE"
+        _record("csu", csu_final, new_csu, "informant_absence_typo")
+        _record("rfd", matched_rfd, new_rfd, "informant_absence_typo")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
+        return csu_final, matched_rfd
 
     if "business trip" in rem_lower or "client left without informing" in rem_lower or "positive address but only sister is residing" in rem_lower:
-        return "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)", "NO CLIENT/ REPRESENTATIVE"
+        new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+        new_rfd = "NO CLIENT/ REPRESENTATIVE"
+        _record("csu", csu_final, new_csu, "informant_business_trip_or_absence")
+        _record("rfd", matched_rfd, new_rfd, "informant_business_trip_or_absence")
+        csu_final, matched_rfd = new_csu, new_rfd
+        if return_overrides:
+            return csu_final, matched_rfd, overrides
+        return csu_final, matched_rfd
 
     if "unit used of client" in rem_lower or "parked his unit in front of neighbors house" in rem_lower:
-        csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+        new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+        _record("csu", csu_final, new_csu, "unit_parked_elsewhere")
+        csu_final = new_csu
+
+    # 7b. Carnapped or Impounded unit -> Unit is strictly NEGATIVE (not at premises)
+    if matched_rfd in ("LTO APPREHENSION/NO ORCR/HPG", "SCAMMED") or any(k in rem_lower for k in ["impounded", "carnap", "carnapped", "lto impound"]):
+        if "CLIENT POSITIVE/UNIT POSITIVE" in (csu_final or "").upper():
+            if "WITH ACTUAL CONTACT" in csu_final.upper():
+                new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+            else:
+                new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+            _record("csu", csu_final, new_csu, "impounded_carnapped_unit_negative")
+            csu_final = new_csu
 
     # 8. Calamity overrides insurance claim when calamity was root cause
     if matched_rfd.upper() == "PENDING INSURANCE CLAIM" and any(w in rem_lower for w in ["flood", "baha", "typhoon", "bagyo", "calamity"]):
+        _record("rfd", matched_rfd, "CALAMITY", "calamity_overrides_insurance")
         matched_rfd = "CALAMITY"
 
     # 9. Operational Consistency: Presumed residency on closed house / unanswered visit
@@ -457,19 +669,80 @@ def canonicalize_csu_rfd(
     )
     if is_house_closed and not is_moved_out and not ("unknown" in rem_lower or "unlocated" in rem_lower):
         if "CLIENT NEGATIVE/UNIT NEGATIVE" in (csu_final or "").upper():
+            _record("csu", csu_final, "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)", "presumed_residency_closed_house")
             csu_final = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
         if not matched_rfd:
+            _record("rfd", matched_rfd, "NO CLIENT/ REPRESENTATIVE", "presumed_residency_closed_house")
             matched_rfd = "NO CLIENT/ REPRESENTATIVE"
 
     # 10. Operational Consistency: CLIENT POSITIVE requires an RFD (never empty)
     if csu_final and "CLIENT POSITIVE" in csu_final.upper() and not matched_rfd:
+        _record("rfd", matched_rfd, "NO CLIENT/ REPRESENTATIVE", "client_pos_requires_rfd")
         matched_rfd = "NO CLIENT/ REPRESENTATIVE"
 
     # 11. Operational Consistency: Empty RFD must only be paired with NEG/NEG (FOR FURTHER VISIT/PROBING)
     if not matched_rfd and csu_final and "CLIENT NEGATIVE/UNIT NEGATIVE" not in csu_final.upper():
+        _record("rfd", matched_rfd, "NO CLIENT/ REPRESENTATIVE", "non_ffv_requires_nonempty_rfd")
         matched_rfd = "NO CLIENT/ REPRESENTATIVE"
 
-    return csu_final if csu_final else None, matched_rfd
+    # 12. Operational Consistency: FOR FURTHER VISIT CSU strictly permits only 3 RFDs: "", "MOVED OUT", "DECEASED BORROWER".
+    is_further_visit_csu = bool(
+        csu_final and (
+            "FOR FURTHER VISIT/PROBING" in csu_final.upper()
+            or "CLIENT NEGATIVE/UNIT NEGATIVE" in csu_final.upper()
+        )
+    )
+    if is_further_visit_csu:
+        rfd_upper_check = matched_rfd.upper() if matched_rfd else ""
+        if rfd_upper_check not in ("", "MOVED OUT", "DECEASED BORROWER"):
+            is_truly_negative = (
+                "NEG" in concat_upper
+                or is_unverified
+                or is_blocked_narrative
+                or is_unit_only_scan
+                or any(k in rem_lower for k in ["unknown", "unlocated", "not recognized", "incomplete address", "does not know", "no one lives"])
+            )
+            if is_truly_negative:
+                _record("rfd", matched_rfd, "", "ffv_enforce_empty_rfd")
+                matched_rfd = ""
+            else:
+                if "BORROWER REFUSED" in rfd_upper_check or "WITH ACTUAL CONTACT" in csu_final.upper():
+                    new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITH Actual Contact)"
+                else:
+                    new_csu = "CLIENT POSITIVE/UNIT NEGATIVE (WITHOUT Actual Contact)"
+                _record("csu", csu_final, new_csu, "ffv_csu_flipped_to_client_pos_due_to_hardship_or_refusal")
+                csu_final = new_csu
+
+    # 13. Operational Consistency & Strict Coupling:
+    # (a) FFV allows ONLY "", "MOVED OUT", or "DECEASED BORROWER"
+    # (b) Blank RFD is ALWAYS paired with FFV
+    is_ffv = csu_final == "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+    if is_ffv:
+        if matched_rfd not in ("", "MOVED OUT", "DECEASED BORROWER"):
+            _record("rfd", matched_rfd, "", "ffv_allows_only_blank_moved_out_deceased")
+            matched_rfd = ""
+    elif matched_rfd == "":
+        _record("csu", csu_final, "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", "blank_rfd_paired_with_ffv")
+        csu_final = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+
+    # If RFD is MOVED OUT or DECEASED BORROWER, CSU must be FFV
+    if matched_rfd in ("MOVED OUT", "DECEASED BORROWER") and not is_ffv:
+        _record("csu", csu_final, "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)", "moved_out_deceased_pairs_with_ffv")
+        csu_final = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)"
+
+    # Final normalization of RFD string to exact RCBC uppercase standard
+    final_rfd_clean = matched_rfd.strip()
+    for opt in OFFICIAL_RCBC_RFD_OPTIONS:
+        if final_rfd_clean.upper() == opt.upper():
+            final_rfd_clean = opt
+            break
+    if final_rfd_clean.upper() in ("", "EMPTY", "NONE", "NULL", "NAN", "<NA>"):
+        final_rfd_clean = ""
+    matched_rfd = final_rfd_clean
+
+    if return_overrides:
+        return (csu_final if csu_final else None, matched_rfd, overrides)
+    return (csu_final if csu_final else None, matched_rfd)
 
 
 class TwoTierRemarksSummarizer:
@@ -488,9 +761,11 @@ class TwoTierRemarksSummarizer:
         system_instructions: str | None = None,
         max_concurrency: int | None = None,
         timeout: float | None = None,
+        profile_id: str | None = None,
     ):
-        from engine.profiles import get_active_profile, DEFAULT_OPERATIONAL_DIRECTIVES
-        active_prof = get_active_profile()
+        from engine.profiles import get_profile_by_id, get_active_profile, DEFAULT_OPERATIONAL_DIRECTIVES
+        self.profile_id = profile_id or get_active_profile().get("id", "default")
+        active_prof = get_profile_by_id(self.profile_id)
 
         self.base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self.api_key = (api_key or DEFAULT_API_KEY).strip()
@@ -502,10 +777,14 @@ class TwoTierRemarksSummarizer:
         self.max_concurrency = max_concurrency or MAX_CONCURRENCY
         self.timeout = timeout or REQUEST_TIMEOUT
 
-    def reload_active_profile(self) -> dict[str, Any]:
+    def reload_active_profile(self, profile_id: str | None = None) -> dict[str, Any]:
         """Reloads models and system instructions from the active profile on disk."""
-        from engine.profiles import get_active_profile, DEFAULT_OPERATIONAL_DIRECTIVES
-        active_prof = get_active_profile()
+        from engine.profiles import get_profile_by_id, get_active_profile, DEFAULT_OPERATIONAL_DIRECTIVES
+        if profile_id:
+            self.profile_id = profile_id
+        else:
+            self.profile_id = get_active_profile().get("id", "default")
+        active_prof = get_profile_by_id(self.profile_id)
         self.model_tagalog = active_prof.get("model_tagalog") or MODEL_TAGALOG
         self.model_english = active_prof.get("model_english") or MODEL_ENGLISH
         self.system_instructions = active_prof.get("system_instructions") or DEFAULT_OPERATIONAL_DIRECTIVES
@@ -521,9 +800,10 @@ class TwoTierRemarksSummarizer:
         remark: str,
         contact_person: str = "",
         concat_val: str = "",
+        unit_status_val: str = "",
         eca_header: str = "",
         max_summary_chars: int = 180,
-    ) -> list[dict[str, str]]:
+    ) -> tuple[list[dict[str, str]], str]:
         primary_csu_formatted = "\n".join(f"  - {c}" for c in PRIMARY_CSU_OPTIONS)
         secondary_csu_formatted = "\n".join(f"  - {c}" for c in SECONDARY_CSU_OPTIONS)
 
@@ -555,14 +835,14 @@ class TwoTierRemarksSummarizer:
             "You are an expert Data Analyst and Credit Operations Specialist for RCBC Auto Loan field collection reports.\n"
             "Your task is to analyze the collector's remark and return a valid JSON object strictly matching this schema:\n"
             "{\n"
-            '  "csu": "<Exact CSU verbatim from ALLOWED_CSU>",\n'
+            '  "csu_reasoning": "<1-2 sentence explanation analyzing contact entity, unit sighting, and dispute vs refusal first, and why alternatives were disqualified>",\n'
+            '  "csu": "<Exact CSU verbatim from ALLOWED_CSU determined from the reasoning above>",\n'
             '  "csu_confidence": "<high | medium | low>",\n'
             '  "csu_alternatives": ["<Other candidate CSU from ALLOWED_CSU if uncertain, otherwise empty list []>"],\n'
-            '  "csu_reasoning": "<1-2 sentence explanation stating primary reason for the selected CSU and why alternatives were disqualified>",\n'
-            '  "rfd": "<Exact RFD verbatim from ALLOWED_RFD, or empty string \"\" if zero info/unknown/unlocated>",\n'
+            '  "rfd_reasoning": "<1-2 sentence explanation analyzing whether dispute/hardship overrides refusal first, and why alternatives were disqualified>",\n'
+            '  "rfd": "<Exact RFD verbatim from ALLOWED_RFD, or empty string \\"\\" if zero info/unknown/unlocated, determined from the reasoning above>",\n'
             '  "rfd_confidence": "<high | medium | low>",\n'
             '  "rfd_alternatives": ["<Other candidate RFD from ALLOWED_RFD if uncertain, otherwise empty list []>"],\n'
-            '  "rfd_reasoning": "<1-2 sentence explanation stating primary reason for the selected RFD and why alternatives were disqualified>",\n'
             '  "detailed_rfd": "<3-clause string: [RFD clause]; [TALK TO clause]; [Statement]>",\n'
             '  "summary": "<concise summary note under max_chars>"\n'
             "}\n\n"
@@ -588,15 +868,18 @@ class TwoTierRemarksSummarizer:
         parts = []
         if contact_person and contact_person.strip():
             parts.append(f"Borrower / Contact Person: {contact_person.strip()}")
-        if concat_val and concat_val.strip() and concat_val.strip().lower() != "none":
+        if "no_concat" not in self.profile_id and concat_val and concat_val.strip() and concat_val.strip().lower() != "none":
             parts.append(f"Field Status / Substatus (CONCAT): {concat_val.strip()}")
+        if unit_status_val and unit_status_val.strip() and unit_status_val.strip().lower() != "none":
+            parts.append(f"Unit Status: {unit_status_val.strip()}")
         parts.append(f"Field Remark: {remark.strip()}")
         user_content = "\n".join(parts)
 
-        return [
+        messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
+        return messages
 
     async def call_llm(
         self,
@@ -605,6 +888,7 @@ class TwoTierRemarksSummarizer:
         remark: str,
         contact_person: str = "",
         concat_val: str = "",
+        unit_status_val: str = "",
         eca_header: str = "",
         retries: int = 2,
     ) -> dict[str, Any]:
@@ -616,6 +900,12 @@ class TwoTierRemarksSummarizer:
                 "rfd": None,
                 "detailed_rfd": None,
                 "model": model,
+                "provider_model": model,
+                "user_prompt": "",
+                "raw_model_json": "",
+                "final_json": "",
+                "overrides_applied": [],
+                "prompt_profile": self.profile_id,
                 "error": "No API key configured",
             }
 
@@ -623,13 +913,17 @@ class TwoTierRemarksSummarizer:
         eca_len = len(eca_header)
         avail_chars = max(40, 195 - eca_len)
 
+        effective_concat = "" if "no_concat" in self.profile_id else concat_val
+
         messages = self._build_prompt(
             remark=remark,
             contact_person=contact_person,
-            concat_val=concat_val,
+            concat_val=effective_concat,
+            unit_status_val=unit_status_val,
             eca_header=eca_header,
             max_summary_chars=avail_chars,
         )
+        user_content = messages[1]["content"] if len(messages) > 1 else ""
 
         # Auto-normalize model alias quirks
         norm_model = (model or "").strip().lower()
@@ -642,10 +936,12 @@ class TwoTierRemarksSummarizer:
         else:
             target_model = model.strip()
 
+        # Part 0d: Determinism: lowest temperature and fixed seed where supported
         payload = {
             "model": target_model,
             "messages": messages,
-            "temperature": 0.1,
+            "temperature": 0.0,
+            "seed": 42,
             "max_tokens": 1500,
         }
 
@@ -657,6 +953,10 @@ class TwoTierRemarksSummarizer:
         last_err: Exception | None = None
         for attempt in range(retries + 1):
             try:
+                # Part 0b: Exponential backoff on retries
+                if attempt > 0:
+                    await asyncio.sleep(0.5 * (2 ** (attempt - 1)))
+
                 resp = await client.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
@@ -672,10 +972,59 @@ class TwoTierRemarksSummarizer:
                         content = msg_obj.get("reasoning_content", "").strip()
                     parsed = _extract_json_payload(content)
                     if parsed and isinstance(parsed, dict):
-                        summary_text = str(parsed.get("summary", "")).strip()
                         raw_csu = str(parsed.get("csu", "")).strip()
                         raw_rfd = str(parsed.get("rfd", "")).strip()
-                        csu_val, rfd_val = canonicalize_csu_rfd(raw_csu, raw_rfd, remark=remark, concat_val=concat_val)
+
+                        # Part 0e: Enforce coupling: FFV allows only RFD "", MOVED OUT, or DECEASED BORROWER.
+                        # Blank RFD is always paired with FFV. If violated, reject and re-ask once quoting the violated rule.
+                        is_ffv = "CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)" in raw_csu.upper()
+                        is_blank_rfd = raw_rfd.upper() in ("", "NONE", "NULL", "EMPTY", "NAN", "<NA>")
+                        coupling_violation = (
+                            (is_ffv and raw_rfd.upper() not in ("", "NONE", "NULL", "EMPTY", "NAN", "<NA>", "MOVED OUT", "DECEASED BORROWER"))
+                            or (is_blank_rfd and not is_ffv)
+                        )
+
+                        if coupling_violation and attempt < retries:
+                            retry_messages = list(messages) + [
+                                {"role": "assistant", "content": content},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "VIOLATION OF COUPLING RULE: 'CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)' "
+                                        "strictly permits only 3 RFDs: '', 'MOVED OUT', or 'DECEASED BORROWER'. "
+                                        "A blank RFD '' is always paired with 'CLIENT NEGATIVE/UNIT NEGATIVE (FOR FURTHER VISIT/PROBING)'. "
+                                        f"Your output had CSU: '{raw_csu}' and RFD: '{raw_rfd}'. "
+                                        "Please correct your classification and return valid JSON adhering strictly to this rule."
+                                    ),
+                                },
+                            ]
+                            try:
+                                re_payload = dict(payload)
+                                re_payload["messages"] = retry_messages
+                                re_resp = await client.post(
+                                    f"{self.base_url}/chat/completions",
+                                    headers=headers,
+                                    json=re_payload,
+                                    timeout=self.timeout,
+                                )
+                                if re_resp.status_code == 200:
+                                    re_data = re_resp.json()
+                                    re_content = (re_data["choices"][0]["message"].get("content") or "").strip()
+                                    if not re_content and re_data["choices"][0]["message"].get("reasoning_content"):
+                                        re_content = re_data["choices"][0]["message"].get("reasoning_content", "").strip()
+                                    re_parsed = _extract_json_payload(re_content)
+                                    if re_parsed and isinstance(re_parsed, dict):
+                                        parsed = re_parsed
+                                        content = re_content
+                                        raw_csu = str(parsed.get("csu", "")).strip()
+                                        raw_rfd = str(parsed.get("rfd", "")).strip()
+                            except Exception:
+                                pass
+
+                        summary_text = str(parsed.get("summary", "")).strip()
+                        csu_val, rfd_val, applied_overrides = canonicalize_csu_rfd(
+                            raw_csu, raw_rfd, remark=remark, concat_val=effective_concat, unit_status_val=unit_status_val, return_overrides=True
+                        )
                         csu_reasoning = str(parsed.get("csu_reasoning", "")).strip()
                         rfd_reasoning = str(parsed.get("rfd_reasoning", "")).strip()
                         csu_conf = str(parsed.get("csu_confidence", "high")).strip().lower()
@@ -690,7 +1039,7 @@ class TwoTierRemarksSummarizer:
                             raw_csu_alts = []
                         csu_alts = []
                         for a in raw_csu_alts:
-                            c_can, _ = canonicalize_csu_rfd(str(a), "", remark=remark, concat_val=concat_val)
+                            c_can, _ = canonicalize_csu_rfd(str(a), "", remark=remark, concat_val=effective_concat, unit_status_val=unit_status_val)
                             if c_can and c_can != csu_val and c_can not in csu_alts:
                                 csu_alts.append(c_can)
 
@@ -699,7 +1048,7 @@ class TwoTierRemarksSummarizer:
                             raw_rfd_alts = []
                         rfd_alts = []
                         for a in raw_rfd_alts:
-                            _, r_can = canonicalize_csu_rfd("", str(a), remark=remark, concat_val=concat_val)
+                            _, r_can = canonicalize_csu_rfd("", str(a), remark=remark, concat_val=effective_concat, unit_status_val=unit_status_val)
                             if r_can and r_can != rfd_val and r_can not in rfd_alts:
                                 rfd_alts.append(r_can)
 
@@ -715,6 +1064,27 @@ class TwoTierRemarksSummarizer:
                                 candidate, max_chars=200, preferred_chars=181
                             )
 
+                        final_json_payload = json.dumps({
+                            "csu": csu_val,
+                            "rfd": rfd_val,
+                            "detailed_rfd": detailed_rfd,
+                            "summary": candidate,
+                            "csu_reasoning": csu_reasoning,
+                            "rfd_reasoning": rfd_reasoning,
+                            "csu_confidence": csu_conf,
+                            "csu_alternatives": csu_alts,
+                            "rfd_confidence": rfd_conf,
+                            "rfd_alternatives": rfd_alts,
+                        }, ensure_ascii=False)
+
+                        # Part 2: derive needs_review flag
+                        needs_review = (
+                            csu_conf != "high"
+                            or rfd_conf != "high"
+                            or bool(csu_alts)
+                            or bool(rfd_alts)
+                        )
+
                         return {
                             "summary": candidate,
                             "csu": csu_val if csu_val else None,
@@ -726,61 +1096,56 @@ class TwoTierRemarksSummarizer:
                             "rfd_confidence": rfd_conf,
                             "rfd_alternatives": rfd_alts,
                             "detailed_rfd": detailed_rfd if detailed_rfd else None,
-                            "model": model,
+                            "model": target_model,
+                            "provider_model": target_model,
                             "raw_content": content,
-                        }
-                    else:
-                        # Fallback parsing if JSON extraction could not recover structured data
-                        # NEVER allow markdown code fences (```json) or raw JSON delimiters ({, }) to be treated as summary!
-                        lines = [l.strip() for l in content.strip().split("\n") if l.strip()]
-                        valid_line = ""
-                        for l in lines:
-                            l_clean = l.replace('"', '').strip()
-                            if not any(l_clean.startswith(prefix) for prefix in ("```", "{", "}", "[", "]", "json:", "csu:", "rfd:", "summary:")):
-                                valid_line = l_clean
-                                break
-
-                        if not valid_line or valid_line.lower() in ("json", "{", "}", "```", "```json"):
-                            # If no clean human-readable narrative line exists, fall back to the cleaned original remark
-                            valid_line = remark.strip()
-
-                        cand = (
-                            f"{eca_header}{valid_line}".strip()
-                            if eca_header and not valid_line.upper().startswith("ECA ")
-                            else valid_line
-                        )
-                        if len(cand) > 200:
-                            cand = fallback_clause_truncate(
-                                cand, max_chars=200, preferred_chars=181
-                            )
-                        return {
-                            "summary": cand,
-                            "csu": None,
-                            "rfd": None,
-                            "detailed_rfd": None,
-                            "model": model,
-                            "raw_content": content,
+                            "user_prompt": user_content,
+                            "raw_model_json": content,
+                            "final_json": final_json_payload,
+                            "overrides_applied": applied_overrides,
+                            "prompt_profile": self.profile_id,
+                            "is_fallback": False,
+                            "needs_review": needs_review,
                         }
                 elif resp.status_code in (429, 502, 503, 504):
                     await asyncio.sleep(0.5 * (attempt + 1))
                     continue
                 else:
-                    return {
-                        "summary": None,
-                        "detailed_rfd": None,
-                        "model": model,
-                        "error": f"HTTP {resp.status_code}: {resp.text[:120]}",
-                    }
+                    last_err = Exception(f"HTTP {resp.status_code}: {resp.text[:120]}")
             except Exception as exc:
                 last_err = exc
                 if attempt < retries:
                     await asyncio.sleep(0.5 * (attempt + 1))
 
+        # Part 0b: NEVER silently substitute rule-engine output when an LLM call fails.
+        # Mark row as FALLBACK visibly so it can be excluded from stats and rerun.
+        candidate_fallback = fallback_clause_truncate(
+            f"{eca_header}{remark}".strip() if eca_header else remark.strip(),
+            max_chars=200,
+            preferred_chars=181,
+        )
         return {
-            "summary": None,
+            "summary": candidate_fallback,
+            "csu": "FALLBACK",
+            "rfd": "FALLBACK",
             "detailed_rfd": None,
-            "model": model,
-            "error": str(last_err) if last_err else "Max retries exceeded",
+            "csu_reasoning": "LLM call failed after retries; marked FALLBACK.",
+            "rfd_reasoning": "LLM call failed after retries; marked FALLBACK.",
+            "csu_confidence": "low",
+            "csu_alternatives": [],
+            "rfd_confidence": "low",
+            "rfd_alternatives": [],
+            "model": target_model,
+            "provider_model": target_model,
+            "raw_content": "",
+            "user_prompt": user_content,
+            "raw_model_json": "",
+            "final_json": "",
+            "overrides_applied": [],
+            "prompt_profile": self.profile_id,
+            "is_fallback": True,
+            "needs_review": True,
+            "error": str(last_err) if last_err else "Failed after retries",
         }
 
     async def call_small_english_llm(
@@ -789,6 +1154,7 @@ class TwoTierRemarksSummarizer:
         remark: str,
         contact_person: str = "",
         concat_val: str = "",
+        unit_status_val: str = "",
         eca_header: str = "",
     ) -> dict[str, Any]:
         """Invokes the fast/compact English model (nova-2-lite)."""
@@ -798,6 +1164,7 @@ class TwoTierRemarksSummarizer:
             remark=remark,
             contact_person=contact_person,
             concat_val=concat_val,
+            unit_status_val=unit_status_val,
             eca_header=eca_header,
         )
 
@@ -807,6 +1174,7 @@ class TwoTierRemarksSummarizer:
         remark: str,
         contact_person: str = "",
         concat_val: str = "",
+        unit_status_val: str = "",
         eca_header: str = "",
     ) -> dict[str, Any]:
         """Invokes the multilingual model for Tagalog/Taglish (qwen3-32b)."""
@@ -816,6 +1184,7 @@ class TwoTierRemarksSummarizer:
             remark=remark,
             contact_person=contact_person,
             concat_val=concat_val,
+            unit_status_val=unit_status_val,
             eca_header=eca_header,
         )
 
@@ -873,6 +1242,7 @@ class TwoTierRemarksSummarizer:
                 remark_text = record.get("cleaned_remark", "") or record.get("raw_remark", "")
                 contact_person = record.get("contact_person", "")
                 concat_val = record.get("concat_val", "")
+                unit_status_val = record.get("unit_status_val", "")
                 eca_header = record.get("eca_header", "")
 
                 # If remark already fits within 200 chars and force_all=False, pass through
@@ -887,17 +1257,25 @@ class TwoTierRemarksSummarizer:
                     if len(cand) > 200:
                         cand = fallback_clause_truncate(cand, max_chars=200, preferred_chars=181)
                     record["summary"] = cand
+                    record["is_fallback"] = False
+                    record["needs_review"] = False
+                    record["prompt_profile"] = self.profile_id
+                    record["provider_model"] = "passthrough"
+                    record["user_prompt"] = ""
+                    record["raw_model_json"] = ""
+                    record["final_json"] = ""
+                    record["overrides_applied"] = []
                     continue
 
                 record["ai_dispatched"] = True
                 task_indices.append(idx)
                 if lang == "TAGALOG":
                     coro = self.call_multilingual_llm(
-                        client, remark_text, contact_person=contact_person, concat_val=concat_val, eca_header=eca_header
+                        client, remark_text, contact_person=contact_person, concat_val=concat_val, unit_status_val=unit_status_val, eca_header=eca_header
                     )
                 else:
                     coro = self.call_small_english_llm(
-                        client, remark_text, contact_person=contact_person, concat_val=concat_val, eca_header=eca_header
+                        client, remark_text, contact_person=contact_person, concat_val=concat_val, unit_status_val=unit_status_val, eca_header=eca_header
                     )
                 tasks.append(_bounded_call(coro))
 
@@ -925,6 +1303,22 @@ class TwoTierRemarksSummarizer:
                         rec["summary"] = fallback_clause_truncate(
                             cand, max_chars=200, preferred_chars=181
                         )
+                        rec["csu"] = "FALLBACK"
+                        rec["rfd"] = "FALLBACK"
+                        rec["csu_reasoning"] = f"LLM exception: {res}"
+                        rec["rfd_reasoning"] = f"LLM exception: {res}"
+                        rec["csu_confidence"] = "low"
+                        rec["csu_alternatives"] = []
+                        rec["rfd_confidence"] = "low"
+                        rec["rfd_alternatives"] = []
+                        rec["user_prompt"] = ""
+                        rec["raw_model_json"] = ""
+                        rec["final_json"] = ""
+                        rec["overrides_applied"] = []
+                        rec["prompt_profile"] = self.profile_id
+                        rec["provider_model"] = self.model_tagalog if rec.get("detected_language") == "TAGALOG" else self.model_english
+                        rec["is_fallback"] = True
+                        rec["needs_review"] = True
                     elif isinstance(res, dict):
                         if res.get("csu"):
                             rec["csu"] = res.get("csu")
@@ -957,6 +1351,16 @@ class TwoTierRemarksSummarizer:
                             )
                             if res.get("error"):
                                 rec["error"] = res.get("error")
+
+                        # Attach Step 2 Logging fields
+                        rec["user_prompt"] = res.get("user_prompt", "")
+                        rec["raw_model_json"] = res.get("raw_model_json", "")
+                        rec["final_json"] = res.get("final_json", "")
+                        rec["overrides_applied"] = res.get("overrides_applied", [])
+                        rec["prompt_profile"] = res.get("prompt_profile", self.profile_id)
+                        rec["provider_model"] = res.get("provider_model", res.get("model", ""))
+                        rec["is_fallback"] = res.get("is_fallback", False)
+                        rec["needs_review"] = res.get("needs_review", False)
 
         return records, detection_latency_ms
 

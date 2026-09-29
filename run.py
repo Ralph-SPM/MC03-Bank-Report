@@ -20,11 +20,12 @@ from mc03.services.web import create_demo_app
 app = create_demo_app()
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    # reload=True automatically detects code changes and hot-reloads the server
+    port = int(os.environ.get("MC03_PRIVATE_PORTAL__PORT", os.environ.get("PORT", 8080)))
     uvicorn.run(
         "run:app",
         host="127.0.0.1",
-        port=8000,
+        port=port,
         reload=True,
     )

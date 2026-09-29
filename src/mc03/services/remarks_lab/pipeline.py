@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 import io
+import json
 
 from .parser import parse_field_result_sheet, RawRemarkRow
 from .cleaner import clean_remark, CleanedRemark
@@ -227,6 +228,15 @@ class RowResult:
     csu_alternatives: List[str] = field(default_factory=list)
     rfd_confidence: str = "high"
     rfd_alternatives: List[str] = field(default_factory=list)
+    prompt_profile: str = ""
+    provider_model: str = ""
+    user_prompt: str = ""
+    raw_model_json: str = ""
+    final_json: str = ""
+    overrides_applied: str = ""
+    unit_status: str = ""
+    is_fallback: bool = False
+    needs_review: bool = False
 
 
 @dataclass
@@ -250,6 +260,8 @@ class BenchmarkReport:
     ai_classified_count: int = 0
     rule_based_fallback_count: int = 0
     untrimmed_count: int = 0
+    fallback_count: int = 0
+    needs_review_count: int = 0
     ai_summarizer_model: str = ""
     ai_batch_enabled: bool = False
 
@@ -266,6 +278,7 @@ class BenchmarkReport:
     date_to: Optional[str] = None
     test_mode: bool = False
     is_already_evaluated: bool = False
+    is_password_protected: bool = False
 
 
 class RemarksLabPipeline:
@@ -295,14 +308,27 @@ class RemarksLabPipeline:
         test_mode: bool = False,
         run_ai: bool = False,
         progress_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+        password: Optional[str] = "SPM1234",
     ) -> BenchmarkReport:
         if progress_callback:
             progress_callback({
                 "stage": "parsing",
                 "percent": 5,
-                "message": "Reading workbook and matching column headers...",
+                "message": "Reading workbook and checking encryption / columns...",
             })
-        raw_rows = parse_field_result_sheet(source, date_from=date_from, date_to=date_to, test_mode=test_mode)
+        raw_rows = parse_field_result_sheet(
+            source,
+            date_from=date_from,
+            date_to=date_to,
+            test_mode=test_mode,
+            password=password or "SPM1234",
+        )
+        if getattr(raw_rows, "is_password_protected", False) and progress_callback:
+            progress_callback({
+                "stage": "parsing",
+                "percent": 8,
+                "message": "Password-protected file detected: successfully unlocked with password.",
+            })
         if progress_callback:
             progress_callback({
                 "stage": "preprocessing",
@@ -318,6 +344,7 @@ class RemarksLabPipeline:
         report.date_from = date_from.isoformat() if date_from else None
         report.date_to = date_to.isoformat() if date_to else None
         report.is_already_evaluated = getattr(raw_rows, "is_already_evaluated", False)
+        report.is_password_protected = getattr(raw_rows, "is_password_protected", False)
         return report
 
     def process_rows(
@@ -440,6 +467,7 @@ class RemarksLabPipeline:
                     "raw_remark": p["narrative_for_llm"],
                     "contact_person": p["raw"].contact_person,
                     "concat_val": p["raw"].concat_val or (f"{p['raw'].client_status}{p['raw'].unit_status}".strip() if p["raw"].client_status or p["raw"].unit_status else ""),
+                    "unit_status_val": f"{p['raw'].unit_status} {p['raw'].unit_substatus}".strip(),
                     "eca_header": p["eca_header"],
                 }
                 for p in preprocessed
@@ -505,6 +533,8 @@ class RemarksLabPipeline:
         rule_based_fallback_count = 0
         untrimmed_count = 0
         overflow_prevented = 0
+        fallback_count = 0
+        needs_review_count = 0
 
         for idx, (item, lang) in enumerate(zip(preprocessed, languages)):
             r = item["raw"]
@@ -539,11 +569,38 @@ class RemarksLabPipeline:
                 ai_classified_count += 1
                 orig_len = len(item["active_source"])
                 trimmed_len = len(trimmed_text)
-                if orig_len > 200 and trimmed_len <= 200:
-                    overflow_prevented += 1
+                prompt_profile = llm_res.get("prompt_profile", getattr(self.two_tier_summarizer, "profile_id", "default"))
+                provider_model = llm_res.get("provider_model", model_used)
+                user_prompt = llm_res.get("user_prompt", "")
+                raw_model_json = llm_res.get("raw_model_json", "")
+                final_json = llm_res.get("final_json", "")
+                overrides_applied = json.dumps(llm_res.get("overrides_applied", []), ensure_ascii=False)
+                is_fallback = bool(llm_res.get("is_fallback", False))
+                needs_review = bool(llm_res.get("needs_review", False))
             else:
+                from engine.summarizer import OFFICIAL_RCBC_RFD_OPTIONS
                 predicted_csu = ranked_res.csu_status
-                predicted_rfd = ranked_res.rfd_code
+                raw_rfd = ranked_res.rfd_code
+                applied_overrides = []
+
+                # Step 4: Make fallback path obey empty-RFD rule for FFV
+                is_ffv = bool(predicted_csu and "CLIENT NEGATIVE/UNIT NEGATIVE" in predicted_csu.upper())
+                norm_rfd = raw_rfd.strip()
+                for opt in OFFICIAL_RCBC_RFD_OPTIONS:
+                    if norm_rfd.upper() == opt.upper():
+                        norm_rfd = opt
+                        break
+                if norm_rfd.upper() in ("", "EMPTY", "NONE", "NULL", "NAN", "<NA>"):
+                    norm_rfd = ""
+                elif norm_rfd.upper() in ("NO CLIENT / REPRESENTATIVE REACHED", "NO CLIENT/REPRESENTATIVE REACHED"):
+                    norm_rfd = "NO CLIENT/ REPRESENTATIVE"
+
+                if is_ffv and norm_rfd.upper() not in ("MOVED OUT", "DECEASED BORROWER"):
+                    if norm_rfd != "":
+                        applied_overrides.append({"field": "rfd", "before": norm_rfd, "after": "", "rule": "fallback_ffv_enforce_empty_rfd"})
+                    norm_rfd = ""
+
+                predicted_rfd = norm_rfd
                 detailed_rfd_val = ranked_res.detailed_rfd
                 csu_reasoning = r.evaluated_csu_why or ranked_res.csu_reasoning
                 rfd_reasoning = r.evaluated_rfd_why or ranked_res.rfd_reasoning
@@ -572,13 +629,28 @@ class RemarksLabPipeline:
                 else:
                     untrimmed_count += 1
 
+                prompt_profile = getattr(self.two_tier_summarizer, "profile_id", "default") if self.two_tier_summarizer else "rule_fallback"
+                provider_model = "rule_fallback"
+                user_prompt = ""
+                raw_model_json = ""
+                final_json = json.dumps({"csu": predicted_csu, "rfd": predicted_rfd, "summary": trimmed_text}, ensure_ascii=False)
+                overrides_applied = json.dumps(applied_overrides, ensure_ascii=False)
+                is_fallback = False
+                needs_review = False
+
+            if is_fallback:
+                fallback_count += 1
+            if needs_review:
+                needs_review_count += 1
+
             has_csu_gt = bool(getattr(raw_rows, "has_manual_csu", False)) or bool(r.manual_csu)
             has_rfd_gt = bool(getattr(raw_rows, "has_manual_rfd", False)) or bool(r.manual_rfd)
             has_gt = has_csu_gt or has_rfd_gt
             csu_match = _is_csu_match(predicted_csu, r.manual_csu) if has_csu_gt else True
             rfd_match = _is_rfd_match(predicted_rfd, r.manual_rfd) if has_rfd_gt else True
 
-            if has_gt:
+            # Fallback rows are excluded from agreement stats
+            if has_gt and not is_fallback:
                 ground_truth_rows += 1
                 if csu_match:
                     csu_matches += 1
@@ -586,7 +658,7 @@ class RemarksLabPipeline:
                     rfd_matches += 1
 
             discrepancy = has_gt and (not csu_match or not rfd_match)
-            if discrepancy:
+            if discrepancy and not is_fallback:
                 discrepancies += 1
 
             row_res = RowResult(
@@ -629,6 +701,15 @@ class RemarksLabPipeline:
                 csu_alternatives=csu_alternatives,
                 rfd_confidence=rfd_confidence,
                 rfd_alternatives=rfd_alternatives,
+                prompt_profile=prompt_profile,
+                provider_model=provider_model,
+                user_prompt=user_prompt,
+                raw_model_json=raw_model_json,
+                final_json=final_json,
+                overrides_applied=overrides_applied,
+                unit_status=f"{r.unit_status} {r.unit_substatus}".strip(),
+                is_fallback=is_fallback,
+                needs_review=needs_review,
             )
             results.append(row_res)
 
@@ -655,6 +736,8 @@ class RemarksLabPipeline:
             ai_classified_count=ai_classified_count,
             rule_based_fallback_count=rule_based_fallback_count,
             untrimmed_count=untrimmed_count,
+            fallback_count=fallback_count,
+            needs_review_count=needs_review_count,
             ai_summarizer_model=model_display,
             ai_batch_enabled=True,
             test_mode=test_mode,
@@ -697,6 +780,18 @@ class RemarksLabPipeline:
                 "Character Count": r.final_char_count,
                 "char checker": "" if r.final_char_count <= 200 else "PLS REVISE",
             })
+            if report.test_mode:
+                row_dict["CSU Match"] = "YES" if r.csu_match else "NO"
+                row_dict["RFD Match"] = "YES" if r.rfd_match else "NO"
+                row_dict["Discrepancy"] = "DISCREPANCY" if r.discrepancy_flag else "AGREE"
+            row_dict["Needs Review"] = "YES" if r.needs_review else "NO"
+            row_dict["Is Fallback"] = "YES" if r.is_fallback else "NO"
+            row_dict["Prompt Profile"] = r.prompt_profile
+            row_dict["Provider / Model"] = r.provider_model
+            row_dict["User Prompt"] = r.user_prompt
+            row_dict["Raw Model JSON"] = r.raw_model_json
+            row_dict["Final JSON"] = r.final_json
+            row_dict["Overrides Applied"] = r.overrides_applied
             data.append(row_dict)
         df = pd.DataFrame(data)
         out = io.BytesIO()
@@ -748,6 +843,15 @@ class RemarksLabPipeline:
                 row_dict["CSU Match"] = "YES" if csu_match else "NO"
                 row_dict["RFD Match"] = "YES" if rfd_match else "NO"
                 row_dict["Discrepancy"] = "DISCREPANCY" if r.get("discrepancy_flag") else "AGREE"
+
+            row_dict["Needs Review"] = "YES" if r.get("needs_review") else "NO"
+            row_dict["Is Fallback"] = "YES" if r.get("is_fallback") else "NO"
+            row_dict["Prompt Profile"] = r.get("prompt_profile", "")
+            row_dict["Provider / Model"] = r.get("provider_model", "")
+            row_dict["User Prompt"] = r.get("user_prompt", "")
+            row_dict["Raw Model JSON"] = r.get("raw_model_json", "")
+            row_dict["Final JSON"] = r.get("final_json", "")
+            row_dict["Overrides Applied"] = r.get("overrides_applied", "")
 
             data.append(row_dict)
         df = pd.DataFrame(data)

@@ -275,4 +275,125 @@ def test_api_remarks_export_processed_test_mode():
     assert df["CSU Match"].iloc[0] == "YES"
 
 
+def test_api_remarks_process_password_protected_xlsx():
+    import msoffcrypto
+    import openpyxl
+
+    app = create_demo_app()
+    client = TestClient(app)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FIELD RSULT"
+    ws.append(["Account Number", "CH Code", "Remarks"])
+    ws.append(["ACC-ENC-01", "CH-ENC-01", "Spoke with borrower, promised payment next Monday."])
+    plain_buf = io.BytesIO()
+    wb.save(plain_buf)
+
+    # Encrypt workbook with password SPM1234
+    office_file = msoffcrypto.OfficeFile(io.BytesIO(plain_buf.getvalue()))
+    enc_buf = io.BytesIO()
+    office_file.encrypt("SPM1234", enc_buf)
+
+    xlsx_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    res = client.post(
+        "/api/remarks/process",
+        files={"workbook": ("encrypted_field.xlsx", enc_buf.getvalue(), xlsx_mime)},
+        data={"run_ai": "false"},
+    )
+    assert res.status_code == 200
+    res_data = res.json()
+    assert res_data["success"] is True
+    assert res_data["total_rows"] == 1
+    assert res_data["is_password_protected"] is True
+    assert res_data["rows"][0]["account_number"] == "ACC-ENC-01"
+
+
+def test_api_remarks_process_stream_password_protected_xlsx():
+    import msoffcrypto
+    import openpyxl
+
+    app = create_demo_app()
+    client = TestClient(app)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FIELD RSULT"
+    ws.append(["Account Number", "CH Code", "Remarks"])
+    ws.append(["ACC-ENC-02", "CH-ENC-02", "Spoke with spouse."])
+    plain_buf = io.BytesIO()
+    wb.save(plain_buf)
+
+    office_file = msoffcrypto.OfficeFile(io.BytesIO(plain_buf.getvalue()))
+    enc_buf = io.BytesIO()
+    office_file.encrypt("SPM1234", enc_buf)
+
+    xlsx_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    res = client.post(
+        "/api/remarks/process-stream",
+        files={"workbook": ("stream_enc.xlsx", enc_buf.getvalue(), xlsx_mime)},
+        data={"run_ai": "false"},
+    )
+    assert res.status_code == 200
+    assert "text/event-stream" in res.headers["content-type"]
+    text = res.text
+    assert '"is_password_protected": true' in text.lower() or '"is_password_protected":true' in text.lower()
+
+
+def test_api_remarks_password_protected_zip():
+    import pyzipper
+    import openpyxl
+
+    app = create_demo_app()
+    client = TestClient(app)
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FIELD RSULT"
+    ws.append(["Account Number", "Remarks"])
+    ws.append(["ZIP-ACCT-01", "Relocated to Cebu."])
+    excel_buf = io.BytesIO()
+    wb.save(excel_buf)
+
+    zip_buf = io.BytesIO()
+    with pyzipper.AESZipFile(zip_buf, "w", compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(b"SPM1234")
+        zf.writestr("field_result.xlsx", excel_buf.getvalue())
+
+    res = client.post(
+        "/api/remarks/process",
+        files={"workbook": ("field.zip", zip_buf.getvalue(), "application/zip")},
+        data={"run_ai": "false"},
+    )
+    assert res.status_code == 200
+    res_data = res.json()
+    assert res_data["success"] is True
+    assert res_data["total_rows"] == 1
+    assert res_data["is_password_protected"] is True
+    assert res_data["rows"][0]["account_number"] == "ZIP-ACCT-01"
+
+
+def test_remarks_wrong_password_error():
+    import msoffcrypto
+    import openpyxl
+    import pytest
+    from mc03.services.remarks_lab.parser import parse_field_result_sheet
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "FIELD RSULT"
+    ws.append(["Account Number", "Remarks"])
+    ws.append(["ACC-001", "Spoke with client"])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    office_file = msoffcrypto.OfficeFile(io.BytesIO(buf.getvalue()))
+    enc_buf = io.BytesIO()
+    office_file.encrypt("DIFFERENT_PASS", enc_buf)
+
+    # Calling with default SPM1234 on a file protected with DIFFERENT_PASS should raise ValueError
+    with pytest.raises(ValueError, match="password-protected"):
+        parse_field_result_sheet(enc_buf.getvalue(), password="SPM1234")
+
+
 

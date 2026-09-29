@@ -261,8 +261,8 @@ def _apply_review_edit(
 def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
     """Build the loopback-only RCBC portal and its process-lifetime services."""
     resolved = settings if settings is not None else load_runtime_settings()
-    if resolved.demo_bind.host != "127.0.0.1" or resolved.demo_bind.port != 8000:
-        raise ValueError("RCBC demo portal must bind exclusively to 127.0.0.1:8000")
+    if resolved.demo_bind.host != "127.0.0.1" or resolved.demo_bind.port not in (8000, 8080):
+        raise ValueError("RCBC demo portal must bind exclusively to 127.0.0.1:8080 (or 8000)")
     app = FastAPI(
         title="RCBC Initial Demo Portal",
         docs_url=None,
@@ -583,11 +583,16 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
         test_mode = str(raw_test_mode).lower() in ("true", "1", "on", "yes")
         raw_run_ai = form.get("run_ai")
         run_ai = str(raw_run_ai).lower() in ("true", "1", "on", "yes")
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
 
         two_tier = get_summarizer()
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
             return templates.TemplateResponse(
@@ -600,7 +605,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                     "date_from": raw_date_from,
                     "date_to": raw_date_to,
                     "test_mode": test_mode,
-                    "error": "Please provide a valid Excel workbook (.xlsx, .xls) or Test Mode CSV (.csv).",
+                    "error": "Please provide a valid Excel workbook (.xlsx, .xls), CSV (.csv), or ZIP archive (.zip).",
                     "litellm_configured": two_tier.is_available,
                     "model_tagalog": two_tier.model_tagalog,
                     "model_english": two_tier.model_english,
@@ -636,7 +641,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
 
         try:
             pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
-            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=test_mode, run_ai=run_ai)
+            report = pipeline.process_file(
+                contents,
+                date_from=date_from,
+                date_to=date_to,
+                test_mode=test_mode,
+                run_ai=run_ai,
+                password=password,
+            )
         except Exception as exc:
             import traceback
             traceback.print_exc()
@@ -696,17 +708,29 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
 
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
-            return PlainTextResponse("Please provide an Excel file (.xlsx, .xls) or CSV (.csv)", status_code=400)
+            return PlainTextResponse("Please provide an Excel file (.xlsx, .xls), CSV (.csv), or ZIP (.zip)", status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
             return PlainTextResponse("File is empty", status_code=400)
 
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
+
         pipeline = RemarksLabPipeline()
-        report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=test_mode)
+        report = pipeline.process_file(
+            contents,
+            date_from=date_from,
+            date_to=date_to,
+            test_mode=test_mode,
+            password=password,
+        )
         output_buffer = pipeline.export_to_excel(report)
 
         filename = f"RCBC_FIELD_EVALUATED_{date_from.strftime('%Y%m%d') if date_from else 'ALL'}.xlsx"
@@ -893,7 +917,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 return JSONResponse({"error": "profile_id is required to activate"}, status_code=400)
             try:
                 activated = activate_profile(profile_id)
-                get_summarizer().reload_active_profile()
+                get_summarizer().reload_active_profile(profile_id)
                 return JSONResponse({
                     "status": "success",
                     "active_profile": activated,
@@ -907,7 +931,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
         set_active = payload.get("set_active", True)
         try:
             saved = save_profile(profile, set_active=set_active)
-            get_summarizer().reload_active_profile()
+            get_summarizer().reload_active_profile(saved.get("id"))
             return JSONResponse({
                 "status": "success",
                 "saved_profile": saved,
@@ -967,13 +991,18 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             run_ai = True
         else:
             run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
 
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
-            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls), CSV (.csv), or ZIP (.zip) file."}, status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
@@ -983,7 +1012,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             two_tier = get_summarizer()
             two_tier.reload_active_profile()
             pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
-            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=False, run_ai=run_ai)
+            report = pipeline.process_file(
+                contents,
+                date_from=date_from,
+                date_to=date_to,
+                test_mode=False,
+                run_ai=run_ai,
+                password=password,
+            )
             return JSONResponse({
                 "success": True,
                 "total_rows": report.total_rows,
@@ -996,6 +1032,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 "rule_based_fallback_count": report.rule_based_fallback_count,
                 "model_tagalog": report.model_tagalog,
                 "model_english": report.model_english,
+                "is_password_protected": report.is_password_protected,
                 "rows": [_serialize_row_result(r) for r in report.rows],
             })
         except Exception as exc:
@@ -1017,13 +1054,18 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             run_ai = True
         else:
             run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
 
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
-            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls), CSV (.csv), or ZIP (.zip) file."}, status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
@@ -1033,7 +1075,14 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             two_tier = get_summarizer()
             two_tier.reload_active_profile()
             pipeline = RemarksLabPipeline(two_tier_summarizer=two_tier)
-            report = pipeline.process_file(contents, date_from=date_from, date_to=date_to, test_mode=True, run_ai=run_ai)
+            report = pipeline.process_file(
+                contents,
+                date_from=date_from,
+                date_to=date_to,
+                test_mode=True,
+                run_ai=run_ai,
+                password=password,
+            )
             return JSONResponse({
                 "success": True,
                 "total_rows": report.total_rows,
@@ -1053,6 +1102,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                 "rule_based_fallback_count": report.rule_based_fallback_count,
                 "model_tagalog": report.model_tagalog,
                 "model_english": report.model_english,
+                "is_password_protected": report.is_password_protected,
                 "rows": [_serialize_row_result(r) for r in report.rows],
             })
         except Exception as exc:
@@ -1074,13 +1124,18 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             run_ai = True
         else:
             run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
 
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
-            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls), CSV (.csv), or ZIP (.zip) file."}, status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
@@ -1108,6 +1163,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                         test_mode=False,
                         run_ai=run_ai,
                         progress_callback=progress_cb,
+                        password=password,
                     )
                     payload = {
                         "type": "complete",
@@ -1123,6 +1179,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                             "rule_based_fallback_count": report.rule_based_fallback_count,
                             "model_tagalog": report.model_tagalog,
                             "model_english": report.model_english,
+                            "is_password_protected": report.is_password_protected,
                             "rows": [_serialize_row_result(r) for r in report.rows],
                         },
                     }
@@ -1137,6 +1194,8 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             future = loop.run_in_executor(executor, run_sync_pipeline)
 
             while not future.done() or not queue.empty():
+                if await request.is_disconnected():
+                    break
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.25)
                     yield f"data: {json.dumps(msg)}\n\n"
@@ -1163,13 +1222,18 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             run_ai = True
         else:
             run_ai = str(raw_run_ai).lower() not in ("false", "0", "off", "no")
+        raw_password = form.get("password")
+        password = _form_str(raw_password) or "SPM1234"
 
         upload_name = (getattr(workbook_upload, "filename", None) or "").lower()
         is_valid_file = isinstance(workbook_upload, UploadFile) and (
-            upload_name.endswith(".xlsx") or upload_name.endswith(".xls") or upload_name.endswith(".csv")
+            upload_name.endswith(".xlsx")
+            or upload_name.endswith(".xls")
+            or upload_name.endswith(".csv")
+            or upload_name.endswith(".zip")
         )
         if not is_valid_file:
-            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls) or CSV (.csv) file."}, status_code=400)
+            return JSONResponse({"error": "Please provide a valid Excel (.xlsx, .xls), CSV (.csv), or ZIP (.zip) file."}, status_code=400)
 
         contents = await workbook_upload.read()
         if not contents:
@@ -1197,6 +1261,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                         test_mode=True,
                         run_ai=run_ai,
                         progress_callback=progress_cb,
+                        password=password,
                     )
                     payload = {
                         "type": "complete",
@@ -1219,6 +1284,7 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
                             "rule_based_fallback_count": report.rule_based_fallback_count,
                             "model_tagalog": report.model_tagalog,
                             "model_english": report.model_english,
+                            "is_password_protected": report.is_password_protected,
                             "rows": [_serialize_row_result(r) for r in report.rows],
                         },
                     }
@@ -1233,6 +1299,8 @@ def create_demo_app(settings: RuntimeSettings | None = None) -> FastAPI:
             future = loop.run_in_executor(executor, run_sync_pipeline)
 
             while not future.done() or not queue.empty():
+                if await request.is_disconnected():
+                    break
                 try:
                     msg = await asyncio.wait_for(queue.get(), timeout=0.25)
                     yield f"data: {json.dumps(msg)}\n\n"
@@ -1333,6 +1401,15 @@ def _serialize_row_result(r: Any) -> dict[str, Any]:
         "language_route": getattr(r, "language_route", "ENGLISH"),
         "model_used": getattr(r, "model_used", ""),
         "classification_source": getattr(r, "classification_source", "RULE"),
+        "prompt_profile": getattr(r, "prompt_profile", ""),
+        "provider_model": getattr(r, "provider_model", ""),
+        "user_prompt": getattr(r, "user_prompt", ""),
+        "raw_model_json": getattr(r, "raw_model_json", ""),
+        "final_json": getattr(r, "final_json", ""),
+        "overrides_applied": getattr(r, "overrides_applied", ""),
+        "unit_status": getattr(r, "unit_status", ""),
+        "needs_review": getattr(r, "needs_review", False),
+        "is_fallback": getattr(r, "is_fallback", False),
     }
 
 

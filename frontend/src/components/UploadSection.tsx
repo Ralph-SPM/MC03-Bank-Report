@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Calendar, Filter, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { UploadCloud, Calendar, Filter, FileSpreadsheet, Loader2, Lock } from 'lucide-react';
 
 interface UploadSectionProps {
   mode: 'processor' | 'lab';
-  onProcess: (file: File, dateFrom: string, dateTo: string) => Promise<void>;
+  onProcess: (file: File, dateFrom: string, dateTo: string, password?: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -11,6 +11,8 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ mode, onProcess, i
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [password, setPassword] = useState('SPM1234');
+  const [showPasswordInput, setShowPasswordInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,7 +31,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ mode, onProcess, i
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFile) return;
-    onProcess(selectedFile, dateFrom, dateTo);
+    onProcess(selectedFile, dateFrom, dateTo, password || 'SPM1234');
   };
 
   return (
@@ -79,7 +81,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ mode, onProcess, i
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.zip"
             className="hidden"
           />
           <UploadCloud className="w-9 h-9 text-slate-400 mb-2" />
@@ -94,12 +96,51 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ mode, onProcess, i
           ) : (
             <div>
               <p className="text-xs text-slate-700 font-medium">
-                Click or drag & drop RCBC <span className="font-mono font-semibold">FIELD RSULT</span> workbook (.xlsx, .xls) or test .csv
+                Click or drag & drop RCBC <span className="font-mono font-semibold">FIELD RSULT</span> workbook (.xlsx, .xls), test .csv, or .zip
               </p>
-              <p className="text-[11px] text-slate-400 mt-1">Automatic alias column matching &amp; Concat column detection</p>
+              <p className="text-[11px] text-slate-400 mt-1">Automatic password unlock (SPM1234), alias column matching &amp; Concat detection</p>
             </div>
           )}
         </div>
+
+        {/* Password Protection Badge / Input */}
+        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+          <div className="flex items-center space-x-2 text-slate-700">
+            <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="font-semibold text-[11px]">Protected File Check:</span>
+            <span className="text-[11px] text-slate-500 hidden sm:inline">
+              Auto-unlocks password-protected files with
+            </span>
+            <span className="font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded text-[11px]">
+              {password || 'SPM1234'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPasswordInput(!showPasswordInput)}
+            className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium cursor-pointer"
+          >
+            {showPasswordInput ? 'Hide' : 'Change Password'}
+          </button>
+        </div>
+
+        {showPasswordInput && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+              File Password (Default: SPM1234)
+            </label>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="SPM1234"
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-indigo-500 font-mono"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Filter Controls Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
